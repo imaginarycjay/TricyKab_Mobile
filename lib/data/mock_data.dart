@@ -61,6 +61,66 @@ class MockSpecialBooking {
   static const String estimatedDistance = '5.8 km';
 }
 
+class MockIncomingOffers {
+  static final List<Map<String, dynamic>> offers = [
+    {
+      'id': 'offer_1',
+      'passengerName': 'Juan Dela Cruz',
+      'rideType': 'SHARED',
+      'pickupAddress': 'USM Main Gate, Kabacan',
+      'destinationAddress': 'Kabacan Public Market',
+      'estimatedFare': '₱30.00',
+      'estimatedDistance': '1.5 km',
+      'estimatedDuration': '5 min',
+      'offerCountdownSeconds': 15,
+    },
+    {
+      'id': 'offer_2',
+      'passengerName': 'Maria Clara',
+      'rideType': 'SPECIAL',
+      'pickupAddress': 'Poblacion Terminal, Kabacan',
+      'destinationAddress': 'Osias, Kabacan',
+      'estimatedFare': '₱80.00',
+      'estimatedDistance': '5.2 km',
+      'estimatedDuration': '15 min',
+      'offerCountdownSeconds': 15,
+    },
+    {
+      'id': 'offer_3',
+      'passengerName': 'Jose Rizal',
+      'rideType': 'SHARED',
+      'pickupAddress': 'Kabacan Bus Terminal',
+      'destinationAddress': 'Nongnongan, Kabacan',
+      'estimatedFare': '₱45.00',
+      'estimatedDistance': '3.8 km',
+      'estimatedDuration': '10 min',
+      'offerCountdownSeconds': 15,
+    },
+    {
+      'id': 'offer_4',
+      'passengerName': 'Andres Bonifacio',
+      'rideType': 'SHARED',
+      'pickupAddress': 'Gaisano Grand, Kabacan',
+      'destinationAddress': 'USM Hospital, Kabacan',
+      'estimatedFare': '₱40.00',
+      'estimatedDistance': '2.1 km',
+      'estimatedDuration': '8 min',
+      'offerCountdownSeconds': 15,
+    },
+    {
+      'id': 'offer_5',
+      'passengerName': 'Apolinario Mabini',
+      'rideType': 'SPECIAL',
+      'pickupAddress': 'Salapungan, Kabacan',
+      'destinationAddress': 'Kabacan Water District',
+      'estimatedFare': '₱50.00',
+      'estimatedDistance': '4.5 km',
+      'estimatedDuration': '12 min',
+      'offerCountdownSeconds': 15,
+    },
+  ];
+}
+
 class MockTrip {
   static const String receiptNumber = 'RCT-2026-000042';
   static const String finalFare = '₱35.00';

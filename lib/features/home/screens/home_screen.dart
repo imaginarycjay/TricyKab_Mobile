@@ -55,7 +55,9 @@ class _HomeScreenState extends State<HomeScreen> {
             currentIndex: 0,
             onTap: (index) {
               if (index == 1) {
-                Navigator.of(context).pushNamed(AppRouter.tripHistory);
+                Navigator.of(context).pushReplacementNamed(AppRouter.tripHistory);
+              } else if (index == 2) {
+                Navigator.of(context).pushReplacementNamed(AppRouter.profile);
               }
             },
           ),

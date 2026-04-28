@@ -7,6 +7,7 @@ import '../features/trip/screens/trip_in_progress_screen.dart';
 import '../features/trip/screens/add_passenger_screen.dart';
 import '../features/complete/screens/end_trip_screen.dart';
 import '../features/history/screens/trip_history_screen.dart';
+import '../features/profile/screens/profile_screen.dart';
 
 /// Named route definitions for the Driver App.
 class AppRouter {
@@ -20,6 +21,7 @@ class AppRouter {
   static const String addPassenger = '/trip/add-passenger';
   static const String endTrip = '/complete';
   static const String tripHistory = '/history';
+  static const String profile = '/profile';
 
   static Map<String, WidgetBuilder> get routes => {
     login: (_) => const OtpLoginScreen(),
@@ -30,5 +32,6 @@ class AppRouter {
     addPassenger: (_) => const AddPassengerScreen(),
     endTrip: (_) => const EndTripScreen(),
     tripHistory: (_) => const TripHistoryScreen(),
+    profile: (_) => const ProfileScreen(),
   };
 }

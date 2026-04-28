@@ -89,13 +89,16 @@ class StatusBadge extends StatelessWidget {
         color: backgroundColor ?? AppColors.subtleBackground,
         borderRadius: BorderRadius.circular(100),
       ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
-          color: textColor ?? AppColors.textSecondary,
-          letterSpacing: 0.2,
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            color: textColor ?? AppColors.textSecondary,
+            letterSpacing: 0.2,
+          ),
         ),
       ),
     );
