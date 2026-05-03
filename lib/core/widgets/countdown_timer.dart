@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 
-/// Circular countdown timer matching the CSS countdown style.
+/// Circular countdown matching mockup ring colors: safe / warning / danger.
 class CountdownTimer extends StatefulWidget {
   final int seconds;
   final VoidCallback? onExpired;
@@ -43,10 +43,22 @@ class _CountdownTimerState extends State<CountdownTimer> {
     super.dispose();
   }
 
+  Color _ringColor(int total, int remaining) {
+    if (remaining <= 5) return AppColors.danger;
+    if (remaining <= 10) return AppColors.warning;
+    return AppColors.success;
+  }
+
+  Color _textColor(int total, int remaining) {
+    if (remaining <= 5) return AppColors.danger;
+    if (remaining <= 10) return AppColors.warning;
+    return AppColors.textPrimary;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final progress = _remaining / widget.seconds;
-    final color = _remaining <= 5 ? AppColors.danger : AppColors.primary;
+    final int total = widget.seconds;
+    final double progress = total > 0 ? _remaining / total : 0;
 
     return SizedBox(
       width: widget.size,
@@ -54,7 +66,6 @@ class _CountdownTimerState extends State<CountdownTimer> {
       child: Stack(
         alignment: Alignment.center,
         children: [
-          // Background ring
           SizedBox(
             width: widget.size,
             height: widget.size,
@@ -65,24 +76,22 @@ class _CountdownTimerState extends State<CountdownTimer> {
               strokeCap: StrokeCap.round,
             ),
           ),
-          // Progress ring
           SizedBox(
             width: widget.size,
             height: widget.size,
             child: CircularProgressIndicator(
               value: progress,
               strokeWidth: 4,
-              color: color,
+              color: _ringColor(total, _remaining),
               strokeCap: StrokeCap.round,
             ),
           ),
-          // Number
           Text(
             '$_remaining',
             style: TextStyle(
               fontSize: 22,
               fontWeight: FontWeight.w800,
-              color: color,
+              color: _textColor(total, _remaining),
             ),
           ),
         ],

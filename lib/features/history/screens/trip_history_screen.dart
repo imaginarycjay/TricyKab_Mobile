@@ -86,6 +86,10 @@ class TripHistoryScreen extends StatelessWidget {
             onTap: (index) {
               if (index == 0) {
                 Navigator.of(context).pushReplacementNamed(AppRouter.home);
+              } else if (index == 2) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Profile module will be added soon.')),
+                );
               }
             },
           ),
@@ -154,7 +158,10 @@ class _TripItem extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 2),
-                Row(
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     Text(
                       date,
@@ -163,7 +170,6 @@ class _TripItem extends StatelessWidget {
                         color: AppColors.textMuted,
                       ),
                     ),
-                    const SizedBox(width: 6),
                     StatusBadge.rideType(type),
                   ],
                 ),

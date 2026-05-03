@@ -6,6 +6,8 @@ import '../../../core/widgets/status_badge.dart';
 import '../../../core/widgets/stat_card.dart';
 import '../../../core/widgets/driver_card.dart';
 import '../../../data/mock_data.dart';
+import '../../driver_flow/driver_flow_controller.dart';
+import '../../driver_flow/driver_flow_scope.dart';
 import '../../../navigation/app_router.dart';
 
 /// Driver Home screen.
@@ -18,10 +20,9 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  bool _isOnline = true;
-
   @override
   Widget build(BuildContext context) {
+    final flow = DriverFlowScope.of(context);
     return Scaffold(
       backgroundColor: AppColors.background,
       body: Column(
@@ -38,7 +39,7 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildProfileCard(),
+                  _buildProfileCard(flow),
                   const SizedBox(height: 16),
                   _buildSectionTitle('Today\'s Performance'),
                   _buildStatsGrid(),
@@ -56,6 +57,10 @@ class _HomeScreenState extends State<HomeScreen> {
             onTap: (index) {
               if (index == 1) {
                 Navigator.of(context).pushNamed(AppRouter.tripHistory);
+              } else if (index == 2) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Profile module will be added soon.')),
+                );
               }
             },
           ),
@@ -64,7 +69,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildProfileCard() {
+  Widget _buildProfileCard(DriverFlowController flow) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -84,7 +89,7 @@ class _HomeScreenState extends State<HomeScreen> {
             initials: MockDriver.initials,
             name: MockDriver.fullName,
             meta: '${MockDriver.todaName} · ${MockDriver.plateNumber}',
-            trailing: StatusBadge.availability(_isOnline),
+            trailing: StatusBadge.availability(flow.isOnline),
           ),
           const SizedBox(height: 16),
           // Availability toggle
@@ -110,7 +115,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      _isOnline ? 'You\'re accepting rides' : 'You\'re offline',
+                      flow.isOnline ? 'You\'re accepting rides' : 'You\'re offline',
                       style: const TextStyle(
                         fontSize: 11,
                         color: AppColors.textMuted,
@@ -119,18 +124,18 @@ class _HomeScreenState extends State<HomeScreen> {
                   ],
                 ),
                 GestureDetector(
-                  onTap: () => setState(() => _isOnline = !_isOnline),
+                  onTap: flow.isLoading ? null : flow.toggleAvailability,
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 300),
                     width: 52,
                     height: 28,
                     decoration: BoxDecoration(
-                      color: _isOnline ? AppColors.success : const Color(0xFFCBD5E1),
+                      color: flow.isOnline ? AppColors.success : const Color(0xFFCBD5E1),
                       borderRadius: BorderRadius.circular(100),
                     ),
                     child: AnimatedAlign(
                       duration: const Duration(milliseconds: 300),
-                      alignment: _isOnline ? Alignment.centerRight : Alignment.centerLeft,
+                      alignment: flow.isOnline ? Alignment.centerRight : Alignment.centerLeft,
                       child: Container(
                         width: 22,
                         height: 22,

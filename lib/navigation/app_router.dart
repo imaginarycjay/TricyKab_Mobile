@@ -24,7 +24,10 @@ class AppRouter {
   static Map<String, WidgetBuilder> get routes => {
     login: (_) => const OtpLoginScreen(),
     home: (_) => const HomeScreen(),
-    incomingOffer: (_) => const IncomingOfferScreen(),
+    incomingOffer: (BuildContext context) {
+      final Object? args = ModalRoute.of(context)?.settings.arguments;
+      return IncomingOfferScreen(returnToAssignedPickup: args == true);
+    },
     assignedPickup: (_) => const AssignedPickupScreen(),
     tripInProgress: (_) => const TripInProgressScreen(),
     addPassenger: (_) => const AddPassengerScreen(),

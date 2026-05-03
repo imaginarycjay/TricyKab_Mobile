@@ -14,39 +14,47 @@ class BottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 64,
-      decoration: const BoxDecoration(
-        color: AppColors.cardBackground,
-        border: Border(
-          top: BorderSide(color: AppColors.borderLight, width: 1),
+    return SafeArea(
+      top: false,
+      child: Container(
+        height: 68,
+        decoration: const BoxDecoration(
+          color: AppColors.cardBackground,
+          border: Border(
+            top: BorderSide(color: AppColors.borderLight, width: 1),
+          ),
         ),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _NavItem(
-            icon: Icons.home_outlined,
-            activeIcon: Icons.home_rounded,
-            label: 'Home',
-            isActive: currentIndex == 0,
-            onTap: () => onTap(0),
-          ),
-          _NavItem(
-            icon: Icons.history_outlined,
-            activeIcon: Icons.history_rounded,
-            label: 'Trips',
-            isActive: currentIndex == 1,
-            onTap: () => onTap(1),
-          ),
-          _NavItem(
-            icon: Icons.account_circle_outlined,
-            activeIcon: Icons.account_circle_rounded,
-            label: 'Profile',
-            isActive: currentIndex == 2,
-            onTap: () => onTap(2),
-          ),
-        ],
+        child: Row(
+          children: [
+            Expanded(
+              child: _NavItem(
+                icon: Icons.home_outlined,
+                activeIcon: Icons.home_rounded,
+                label: 'Home',
+                isActive: currentIndex == 0,
+                onTap: () => onTap(0),
+              ),
+            ),
+            Expanded(
+              child: _NavItem(
+                icon: Icons.history_outlined,
+                activeIcon: Icons.history_rounded,
+                label: 'Trips',
+                isActive: currentIndex == 1,
+                onTap: () => onTap(1),
+              ),
+            ),
+            Expanded(
+              child: _NavItem(
+                icon: Icons.account_circle_outlined,
+                activeIcon: Icons.account_circle_rounded,
+                label: 'Profile',
+                isActive: currentIndex == 2,
+                onTap: () => onTap(2),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -69,15 +77,10 @@ class _NavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return InkWell(
       onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
+      child: Center(
+        child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
@@ -85,11 +88,11 @@ class _NavItem extends StatelessWidget {
               size: 20,
               color: isActive ? AppColors.primary : AppColors.textMuted,
             ),
-            const SizedBox(width: 6),
+            const SizedBox(height: 4),
             Text(
               label,
               style: TextStyle(
-                fontSize: 13,
+                fontSize: 12,
                 fontWeight: FontWeight.w600,
                 color: isActive ? AppColors.primary : AppColors.textMuted,
               ),
