@@ -1,27 +1,30 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:driver_app/core/settings/app_settings.dart';
 import 'package:driver_app/features/driver_flow/data/mock_driver_flow_repository.dart';
 import 'package:driver_app/features/driver_flow/driver_flow_controller.dart';
 import 'package:driver_app/main.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
-  testWidgets('driver flow navigates from login to home', (WidgetTester tester) async {
-    await tester.pumpWidget(const TricyKabDriverApp());
-    await tester.pumpAndSettle();
+  testWidgets('driver app boots into Settings when no API base is set', (WidgetTester tester) async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final settings = await AppSettings.load();
+    await tester.pumpWidget(TricyKabDriverApp(settings: settings));
+    await tester.pump();
+    expect(find.text('Settings'), findsOneWidget);
+  });
 
+  testWidgets('driver app boots into Login when API base is set but no token', (WidgetTester tester) async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'tricykab_api_base': 'http://10.0.2.2:8000/api/v1',
+    });
+    final settings = await AppSettings.load();
+    await tester.pumpWidget(TricyKabDriverApp(settings: settings));
+    await tester.pump();
+    expect(find.text('TricyKab'), findsWidgets);
     expect(find.text('Sign in with your registered number'), findsOneWidget);
-
-    await tester.tap(find.text('Sign In as Driver'));
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('Send OTP'));
-    await tester.pumpAndSettle(const Duration(seconds: 1));
-
-    expect(find.text('Verify & Sign In'), findsOneWidget);
-
-    await tester.tap(find.text('Verify & Sign In'));
-    await tester.pumpAndSettle(const Duration(seconds: 1));
-
-    expect(find.text('Today\'s Performance'), findsOneWidget);
   });
 
   test('add passenger updates onboard count after pickup phase', () async {
@@ -29,7 +32,7 @@ void main() {
     await controller.loadOffers();
     await controller.acceptOffer(controller.offers.firstWhere((o) => o.id == 'offer-1'));
     while (controller.offers.isNotEmpty) {
-      await controller.declineOffer(controller.offers.first);
+      await controller.declineCurrentOffer(controller.offers.first);
     }
     expect(controller.tripAnchorOffer, isNotNull);
     final int before = controller.onboardPassengers.length;

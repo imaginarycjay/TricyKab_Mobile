@@ -20,6 +20,24 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  bool _polledOnce = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_polledOnce) return;
+    _polledOnce = true;
+    final flow = DriverFlowScope.of(context);
+    flow.startOfferPolling();
+    if (flow.isOnline) flow.startIdleAvailabilityPing();
+  }
+
+  @override
+  void dispose() {
+    // Polling stays alive across screens until controller is disposed.
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final flow = DriverFlowScope.of(context);
@@ -28,9 +46,10 @@ class _HomeScreenState extends State<HomeScreen> {
       body: Column(
         children: [
           AppHeader(
-            trailing: Icon(
-              Icons.notifications_outlined,
-              color: AppColors.textMuted,
+            trailing: IconButton(
+              icon: Icon(Icons.settings_outlined, color: AppColors.textMuted),
+              tooltip: 'Settings',
+              onPressed: () => Navigator.of(context).pushNamed('/settings'),
             ),
           ),
           Expanded(
@@ -58,9 +77,7 @@ class _HomeScreenState extends State<HomeScreen> {
               if (index == 1) {
                 Navigator.of(context).pushNamed(AppRouter.tripHistory);
               } else if (index == 2) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Profile module will be added soon.')),
-                );
+                Navigator.of(context).pushNamed(AppRouter.profile);
               }
             },
           ),
@@ -124,7 +141,15 @@ class _HomeScreenState extends State<HomeScreen> {
                   ],
                 ),
                 GestureDetector(
-                  onTap: flow.isLoading ? null : flow.toggleAvailability,
+                  onTap: flow.isLoading
+                      ? null
+                      : () async {
+                          final messenger = ScaffoldMessenger.of(context);
+                          final msg = await flow.setAvailability(desiredOnline: !flow.isOnline);
+                          if (msg != null) {
+                            messenger.showSnackBar(SnackBar(content: Text(msg)));
+                          }
+                        },
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 300),
                     width: 52,

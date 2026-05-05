@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/info_row.dart';
 import '../../driver_flow/domain/driver_flow_models.dart';
+import '../../driver_flow/driver_flow_controller.dart';
 import '../../driver_flow/driver_flow_scope.dart';
 import '../../../navigation/app_router.dart';
 
@@ -55,50 +56,79 @@ class _AssignedPickupScreenState extends State<AssignedPickupScreen> {
             color: AppColors.primary,
             child: SafeArea(
               bottom: false,
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Next Task',
-                          style: TextStyle(
-                            color: Colors.white70,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: 0.6,
-                          ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Next Task',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: 0.6,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              flow.pickupHeaderTask,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 2),
-                        Text(
-                          flow.pickupHeaderTask,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w800,
-                          ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(100),
                         ),
-                      ],
-                    ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.group_outlined, size: 12, color: Colors.white),
+                            const SizedBox(width: 4),
+                            Text(
+                              '$paxCount PASSENGERS',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
+                  const SizedBox(height: 8),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                     decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.2),
+                      color: Colors.white,
                       borderRadius: BorderRadius.circular(100),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.group_outlined, size: 12, color: Colors.white),
+                        Icon(_phaseIcon(flow.phase), size: 12, color: AppColors.primary),
                         const SizedBox(width: 4),
                         Text(
-                          '$paxCount PASSENGERS',
+                          'PHASE · ${flow.phase.label}',
                           style: const TextStyle(
-                            color: Colors.white,
+                            color: AppColors.primary,
                             fontSize: 10,
-                            fontWeight: FontWeight.w700,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.5,
                           ),
                         ),
                       ],
@@ -223,36 +253,56 @@ class _AssignedPickupScreenState extends State<AssignedPickupScreen> {
                   const SizedBox(height: 10),
                   _PickupNotesBanner(),
                   const SizedBox(height: 14),
+                  if (flow.lastError != null) ...[
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppColors.dangerLight,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppColors.danger.withValues(alpha: 0.4)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.error_outline, color: AppColors.danger, size: 16),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              flow.lastError!,
+                              style: const TextStyle(fontSize: 12, color: AppColors.danger),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
                   SizedBox(
                     height: 52,
                     width: double.infinity,
                     child: ElevatedButton.icon(
-                      onPressed: () {
-                        final bool goTrip = flow.advancePickupPrimary();
-                        if (goTrip && context.mounted) {
-                          Navigator.of(context).pushReplacementNamed(AppRouter.tripInProgress);
-                        } else {
-                          setState(() {});
-                        }
-                      },
+                      onPressed: flow.isLoading ? null : () => _onPrimaryTap(context, flow),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
-                      icon: Icon(flow.pickupPrimaryIcon, size: 20),
+                      icon: flow.isLoading
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            )
+                          : Icon(flow.pickupPrimaryIcon, size: 20),
                       label: Text(flow.pickupPrimaryLabel),
                     ),
                   ),
                   const SizedBox(height: 10),
                   Center(
-                    child: TextButton(
-                      onPressed: () => Navigator.of(context).pushNamedAndRemoveUntil(
-                        AppRouter.home,
-                        (Route<dynamic> route) => false,
-                      ),
-                      child: const Text(
+                    child: TextButton.icon(
+                      onPressed: flow.isLoading ? null : () => _confirmCancelAssignment(context, flow),
+                      icon: const Icon(Icons.close_rounded, size: 14, color: AppColors.danger),
+                      label: const Text(
                         'Cancel Assignment',
-                        style: TextStyle(fontSize: 12, color: AppColors.textMuted),
+                        style: TextStyle(fontSize: 12, color: AppColors.danger, fontWeight: FontWeight.w600),
                       ),
                     ),
                   ),
@@ -262,6 +312,60 @@ class _AssignedPickupScreenState extends State<AssignedPickupScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  IconData _phaseIcon(DriverPhase phase) {
+    switch (phase) {
+      case DriverPhase.assigned:
+        return Icons.assignment_turned_in_outlined;
+      case DriverPhase.onTheWay:
+        return Icons.directions_rounded;
+      case DriverPhase.arrived:
+        return Icons.flag_outlined;
+      case DriverPhase.inProgress:
+        return Icons.play_arrow_rounded;
+      case DriverPhase.completed:
+        return Icons.check_circle_outline;
+      case DriverPhase.waitingOffers:
+        return Icons.hourglass_top_outlined;
+    }
+  }
+
+  Future<void> _onPrimaryTap(BuildContext context, DriverFlowController flow) async {
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    final goTrip = await flow.advancePickupPrimary();
+    if (!mounted) return;
+    if (goTrip) {
+      navigator.pushReplacementNamed(AppRouter.tripInProgress);
+    } else {
+      setState(() {});
+      if (flow.lastError != null) {
+        messenger.showSnackBar(SnackBar(content: Text(flow.lastError!)));
+      }
+    }
+  }
+
+  Future<void> _confirmCancelAssignment(BuildContext context, DriverFlowController flow) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (BuildContext ctx) {
+        return _CancelReasonDialog();
+      },
+    );
+    if (reason == null) return;
+    await flow.cancelAssignment(reasonCode: reason);
+    if (!mounted) return;
+    if (flow.lastError != null) {
+      messenger.showSnackBar(SnackBar(content: Text(flow.lastError!)));
+      return;
+    }
+    navigator.pushNamedAndRemoveUntil(
+      AppRouter.home,
+      (Route<dynamic> route) => false,
     );
   }
 
@@ -650,6 +754,72 @@ class _MapMarker extends StatelessWidget {
               color: AppColors.textSecondary,
             ),
           ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CancelReasonDialog extends StatefulWidget {
+  @override
+  State<_CancelReasonDialog> createState() => _CancelReasonDialogState();
+}
+
+class _CancelReasonDialogState extends State<_CancelReasonDialog> {
+  String _selected = 'PASSENGER_NO_SHOW';
+
+  Widget _option(String label, String value) {
+    return InkWell(
+      onTap: () => setState(() => _selected = value),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(
+          children: [
+            Icon(
+              _selected == value ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+              size: 18,
+              color: _selected == value ? AppColors.primary : AppColors.textMuted,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                label,
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Cancel assignment'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Pick a reason. Repeated cancellations affect your driver score (PRD §11.4).',
+            style: TextStyle(fontSize: 12, color: AppColors.textMuted),
+          ),
+          const SizedBox(height: 8),
+          _option('Passenger no-show', 'PASSENGER_NO_SHOW'),
+          _option('Mechanical issue', 'MECHANICAL_ISSUE'),
+          _option('Other', 'OTHER'),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Keep assignment'),
+        ),
+        FilledButton(
+          style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
+          onPressed: () => Navigator.pop(context, _selected),
+          child: const Text('Cancel assignment'),
         ),
       ],
     );

@@ -7,8 +7,16 @@ import '../../driver_flow/driver_flow_scope.dart';
 import '../../../navigation/app_router.dart';
 
 /// End trip — parity with `mockups/driver/07-end-trip.html`.
-class EndTripScreen extends StatelessWidget {
+class EndTripScreen extends StatefulWidget {
   const EndTripScreen({super.key});
+
+  @override
+  State<EndTripScreen> createState() => _EndTripScreenState();
+}
+
+class _EndTripScreenState extends State<EndTripScreen> {
+  int _rating = 0;
+  bool _ratingSubmitted = false;
 
   @override
   Widget build(BuildContext context) {
@@ -145,6 +153,64 @@ class EndTripScreen extends StatelessWidget {
                         'Digital receipt sent to passenger\'s phone',
                         textAlign: TextAlign.center,
                         style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppColors.cardBackground,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.04),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    const Text(
+                      'Rate this passenger',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: List.generate(5, (i) {
+                        final filled = _rating > i;
+                        return IconButton(
+                          icon: Icon(
+                            filled ? Icons.star_rounded : Icons.star_border_rounded,
+                            color: filled ? AppColors.warning : AppColors.textMuted,
+                            size: 32,
+                          ),
+                          onPressed: _ratingSubmitted ? null : () => setState(() => _rating = i + 1),
+                        );
+                      }),
+                    ),
+                    const SizedBox(height: 4),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: (_rating == 0 || _ratingSubmitted)
+                            ? null
+                            : () {
+                                setState(() => _ratingSubmitted = true);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Rating endpoint deferred per PRD §15 — submitted locally only.',
+                                    ),
+                                  ),
+                                );
+                              },
+                        icon: const Icon(Icons.send_outlined, size: 16),
+                        label: Text(_ratingSubmitted ? 'Rating recorded locally' : 'Submit rating'),
                       ),
                     ),
                   ],

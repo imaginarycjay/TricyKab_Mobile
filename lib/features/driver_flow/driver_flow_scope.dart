@@ -15,4 +15,10 @@ class DriverFlowScope extends InheritedNotifier<DriverFlowController> {
     assert(scope != null, 'DriverFlowScope not found in widget tree.');
     return scope!.notifier!;
   }
+
+  static DriverFlowController? maybeOf(BuildContext context) {
+    final DriverFlowScope? scope =
+        context.dependOnInheritedWidgetOfExactType<DriverFlowScope>();
+    return scope?.notifier;
+  }
 }

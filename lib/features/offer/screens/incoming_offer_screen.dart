@@ -95,7 +95,7 @@ class _IncomingOfferScreenState extends State<IncomingOfferScreen> {
   }
 
   Future<void> _onDecline(DriverFlowController flow, DriverOffer offer) async {
-    await flow.declineOffer(offer);
+    await flow.declineCurrentOffer(offer);
     setState(() => _activeIndex = 0);
     await _handleDeckComplete(flow);
     if (mounted) setState(() {});

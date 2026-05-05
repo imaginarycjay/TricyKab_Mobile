@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../data/mock_data.dart';
@@ -20,6 +21,7 @@ class TripInProgressScreen extends StatefulWidget {
 class _TripInProgressScreenState extends State<TripInProgressScreen> {
   Timer? _elapsedTimer;
   int _elapsedSeconds = 262; // 4:22
+  bool _gpsStarted = false;
 
   @override
   void initState() {
@@ -30,8 +32,18 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_gpsStarted) return;
+    _gpsStarted = true;
+    final flow = DriverFlowScope.of(context);
+    flow.startLocationPing();
+  }
+
+  @override
   void dispose() {
     _elapsedTimer?.cancel();
+    DriverFlowScope.maybeOf(context)?.stopLocationPing();
     super.dispose();
   }
 
@@ -50,7 +62,66 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
     }
     await flow.endTrip();
     if (!mounted) return;
+    if (flow.lastError != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(flow.lastError!)));
+      return;
+    }
     Navigator.of(context).pushReplacementNamed(AppRouter.endTrip);
+  }
+
+  Future<void> _showSosDialog(BuildContext context) async {
+    final action = await showDialog<String>(
+      context: context,
+      builder: (BuildContext ctx) {
+        return AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.shield_outlined, color: AppColors.danger),
+              SizedBox(width: 8),
+              Text('Driver SOS'),
+            ],
+          ),
+          content: const Text(
+            'Pilot uses direct dial — driver-side SOS API deferred per PRD §22.\n\n'
+            'Choose an emergency contact:',
+            style: TextStyle(fontSize: 13),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Close'),
+            ),
+            FilledButton.icon(
+              icon: const Icon(Icons.local_police_outlined),
+              onPressed: () => Navigator.pop(ctx, '911'),
+              label: const Text('Police 911'),
+            ),
+            FilledButton.icon(
+              style: FilledButton.styleFrom(backgroundColor: AppColors.warning),
+              icon: const Icon(Icons.support_agent),
+              onPressed: () => Navigator.pop(ctx, 'TODA'),
+              label: const Text('TODA dispatch'),
+            ),
+          ],
+        );
+      },
+    );
+    if (action == null || !context.mounted) return;
+    final number = action == '911' ? '911' : '+639180000000';
+    final uri = Uri(scheme: 'tel', path: number);
+    try {
+      final ok = await launchUrl(uri);
+      if (!ok && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not open dialer for $number')),
+        );
+      }
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Dialer unavailable. Call $number manually.')),
+      );
+    }
   }
 
   @override
@@ -71,6 +142,13 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.background,
+      floatingActionButton: FloatingActionButton.extended(
+        backgroundColor: AppColors.danger,
+        foregroundColor: Colors.white,
+        icon: const Icon(Icons.shield_outlined),
+        label: const Text('SOS'),
+        onPressed: () => _showSosDialog(context),
+      ),
       body: SafeArea(
         child: Column(
           children: [
