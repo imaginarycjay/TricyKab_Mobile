@@ -36,6 +36,9 @@ class FakeDriverFlowRepository implements DriverFlowRepository {
   Future<bool> verifyOtp(String phoneNumber, String otpCode) => _mock.verifyOtp(phoneNumber, otpCode);
 
   @override
+  Future<DriverMeProfile?> myProfile() => _mock.myProfile();
+
+  @override
   Future<bool> updateAvailability(bool online, {double? latitude, double? longitude}) async {
     calls.add('availability:$online');
     return online;
@@ -92,6 +95,7 @@ class FakeDriverFlowRepository implements DriverFlowRepository {
     required double endLongitude,
     String? fareAmount,
     double? accuracy,
+    bool preserveContext = false,
   }) async {
     _nextKey('end-$tripId');
     _nextKey('payment-$bookingId');
@@ -151,5 +155,15 @@ class FakeDriverFlowRepository implements DriverFlowRepository {
   Future<DriverHistoryBooking?> bookingDetail(int bookingId) async {
     calls.add('bookingDetail:$bookingId');
     return _mock.bookingDetail(bookingId);
+  }
+
+  @override
+  Future<void> submitDispute({
+    required int bookingId,
+    required String disputeType,
+    required String description,
+  }) async {
+    _nextKey('dispute-$bookingId');
+    calls.add('dispute:$bookingId:$disputeType');
   }
 }

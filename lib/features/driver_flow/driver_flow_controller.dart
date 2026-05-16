@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 
+import '../../core/cache/driver_bookings_cache.dart';
 import '../../data/mock_data.dart';
 import 'data/driver_flow_repository.dart';
 import 'data/http_driver_flow_repository.dart';
@@ -42,9 +43,14 @@ extension DriverPhaseLabel on DriverPhase {
 }
 
 class DriverFlowController extends ChangeNotifier {
-  DriverFlowController({required DriverFlowRepository repository}) : _repository = repository;
+  DriverFlowController({
+    required DriverFlowRepository repository,
+    DriverBookingsCache? bookingsCache,
+  })  : _repository = repository,
+        _bookingsCache = bookingsCache ?? DriverBookingsCache();
 
   DriverFlowRepository _repository;
+  final DriverBookingsCache _bookingsCache;
   Timer? _offerPollTimer;
   Timer? _locationPingTimer;
   Timer? _idleAvailabilityTimer;
@@ -63,9 +69,7 @@ class DriverFlowController extends ChangeNotifier {
 
   DriverFlowRepository get repository => _repository;
 
-  final TextEditingController phoneController = TextEditingController(
-    text: MockDriver.phoneNumber,
-  );
+  final TextEditingController phoneController = TextEditingController();
 
   bool isLoading = false;
   bool otpSent = false;
@@ -87,6 +91,21 @@ class DriverFlowController extends ChangeNotifier {
   /// Visible offer cards (mockup carousel deck).
   List<DriverOffer> offers = <DriverOffer>[];
 
+  /// When the driver dismisses the offer surface while offers are still pending,
+  /// we suppress auto-navigation and instead show attention cues on the home UI.
+  bool offerSurfaceSuppressed = false;
+
+  void suppressAutoOfferSurface() {
+    offerSurfaceSuppressed = true;
+    notifyListeners();
+  }
+
+  void clearOfferSurfaceSuppression() {
+    if (!offerSurfaceSuppressed) return;
+    offerSurfaceSuppressed = false;
+    notifyListeners();
+  }
+
   /// Accepted during current batch; persists until pickup/trip reset.
   List<DriverOffer> acceptedOffers = <DriverOffer>[];
 
@@ -102,8 +121,22 @@ class DriverFlowController extends ChangeNotifier {
   /// Selected waiting passenger for arrived-pickup highlight.
   String? activeWaitingPassengerId;
 
-  int capacity = MockDriver.capacity;
+  int capacity = 4;
+  DriverMeProfile? me;
   DriverTripSummary? tripSummary;
+
+  /// Display cache for trip history, earnings, and dashboard stats.
+  List<DriverHistoryBooking>? bookings;
+  DateTime? bookingsFetchedAt;
+  bool bookingsRefreshing = false;
+  String? bookingsLoadError;
+
+  /// Per-passenger receipt shown after completing an individual passenger.
+  DriverTripSummary? passengerTripSummary;
+
+  /// The passenger whose trip was just completed (for the receipt screen).
+  TripPassenger? lastCompletedPassenger;
+
   String? errorMessage;
   String? lastError;
 
@@ -144,6 +177,13 @@ class DriverFlowController extends ChangeNotifier {
       final bool ok = await _repository.verifyOtp(phoneController.text.trim(), otpCode);
       if (!ok) {
         errorMessage = 'Invalid OTP code.';
+        return false;
+      }
+      // Fetch driver identity/profile from backend (name, tricycle, TODA).
+      me = await _repository.myProfile();
+      _syncBookingsCacheScope();
+      if (me?.tricycleCapacity != null) {
+        capacity = me!.tricycleCapacity!;
       }
       return ok;
     } catch (e) {
@@ -211,19 +251,27 @@ class DriverFlowController extends ChangeNotifier {
         } catch (_) {
           result = 'GPS unavailable — going online with last known position.';
         }
+
+        // Always provide a usable coordinate when turning online so the backend
+        // can accept the transition even if GPS/permission is unavailable.
+        lat ??= lastLatitude ?? 7.114;
+        lng ??= lastLongitude ?? 124.836;
       }
       isOnline = await _repository.updateAvailability(
         desiredOnline,
-        latitude: lat ?? lastLatitude,
-        longitude: lng ?? lastLongitude,
+        latitude: lat,
+        longitude: lng,
       );
       if (isOnline) {
         startIdleAvailabilityPing();
       } else {
         stopIdleAvailabilityPing();
       }
-    } catch (_) {
-      errorMessage = 'Unable to update availability.';
+    } catch (e) {
+      final String msg =
+          (e is StateError) ? e.message : 'Unable to update availability.';
+      errorMessage = msg;
+      result = msg;
     } finally {
       isLoading = false;
       notifyListeners();
@@ -238,6 +286,9 @@ class DriverFlowController extends ChangeNotifier {
     notifyListeners();
     try {
       offers = await _repository.fetchIncomingOffers(midAssignment: midAssignment);
+      if (offers.isEmpty) {
+        offerSurfaceSuppressed = false;
+      }
       if (!midAssignment) {
         acceptedOffers = <DriverOffer>[];
       }
@@ -304,6 +355,9 @@ class DriverFlowController extends ChangeNotifier {
           final freshIds = fresh.map((o) => o.id).toSet();
           if (knownIds.length != freshIds.length || knownIds.difference(freshIds).isNotEmpty) {
             offers = fresh;
+            if (offers.isEmpty) {
+              offerSurfaceSuppressed = false;
+            }
             notifyListeners();
           }
         }
@@ -559,7 +613,7 @@ class DriverFlowController extends ChangeNotifier {
 
   /// `inProgress` → `completed`.  POST /drivers/trips/{trip}/end +
   /// /payments/{booking}/record.
-  Future<void> endTrip() async {
+  Future<void> endTrip({bool forceCompletePhase = true}) async {
     if (phase != DriverPhase.inProgress) {
       // Allow a manual recovery: still attempt end if we have a trip context.
     }
@@ -587,9 +641,13 @@ class DriverFlowController extends ChangeNotifier {
         endLongitude: pos.$2 ?? ctx.destinationLongitude ?? 124.8419,
         fareAmount: ctx.estimatedFareAmount,
         accuracy: 8,
+        preserveContext: !forceCompletePhase,
       );
-      phase = DriverPhase.completed;
-      stopLocationPing();
+      if (forceCompletePhase) {
+        phase = DriverPhase.completed;
+        stopLocationPing();
+        unawaited(loadBookings(forceNetwork: true));
+      }
     } catch (_) {
       lastError = 'Failed to end trip. Please retry.';
       phase = previous;
@@ -597,6 +655,90 @@ class DriverFlowController extends ChangeNotifier {
       isLoading = false;
       notifyListeners();
     }
+  }
+
+  void _syncBookingsCacheScope() {
+    final id = me?.driverId;
+    _bookingsCache.scopeKey = id != null ? 'driver_$id' : 'default';
+  }
+
+  /// Load bookings for display screens. Uses memory/disk cache unless [forceNetwork].
+  Future<void> loadBookings({required bool forceNetwork}) async {
+    _syncBookingsCacheScope();
+    bookingsLoadError = null;
+
+    if (!forceNetwork) {
+      if (bookings != null) return;
+
+      final cached = await _bookingsCache.readList();
+      if (cached != null && cached.rows.isNotEmpty) {
+        bookings = cached.rows;
+        bookingsFetchedAt = cached.fetchedAt;
+        notifyListeners();
+        return;
+      }
+    }
+
+    final hadData = bookings != null;
+    bookingsRefreshing = hadData;
+    if (!hadData) notifyListeners();
+
+    try {
+      final rows = await _repository.myBookings();
+      bookings = rows;
+      bookingsFetchedAt = DateTime.now();
+      await _bookingsCache.writeList(rows);
+    } catch (e) {
+      bookingsLoadError = e.toString();
+      if (!hadData) bookings = null;
+    } finally {
+      bookingsRefreshing = false;
+      notifyListeners();
+    }
+  }
+
+  Future<DriverHistoryBooking?> bookingDetail(int bookingId, {required bool forceNetwork}) async {
+    _syncBookingsCacheScope();
+
+    if (!forceNetwork) {
+      final fromList = bookings?.where((b) => b.id == bookingId).cast<DriverHistoryBooking?>().firstOrNull;
+      if (fromList != null) return fromList;
+      final cached = await _bookingsCache.readDetail(bookingId);
+      if (cached != null) return cached;
+    }
+
+    try {
+      final detail = await _repository.bookingDetail(bookingId);
+      if (detail != null) {
+        await _bookingsCache.writeDetail(detail);
+      }
+      return detail;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> clearBookingsCache() async {
+    bookings = null;
+    bookingsFetchedAt = null;
+    bookingsLoadError = null;
+    bookingsRefreshing = false;
+    await _bookingsCache.clear();
+    notifyListeners();
+  }
+
+  Future<void> signOut() async {
+    stopOfferPolling();
+    stopLocationPing();
+    stopIdleAvailabilityPing();
+    await clearBookingsCache();
+    if (_repository is HttpDriverFlowRepository) {
+      await (_repository as HttpDriverFlowRepository).clearAuthLocally();
+    }
+    me = null;
+    resetTripFlow();
+    otpSent = false;
+    notifyListeners();
   }
 
   Future<void> cancelAssignment({required String reasonCode, String? notes}) async {
@@ -657,6 +799,7 @@ class DriverFlowController extends ChangeNotifier {
     onboardPassengers = <TripPassenger>[
       TripPassenger(
         id: 'live-${ctx.id}',
+        bookingId: ctx.bookingId,
         name: ctx.passengerName,
         initials: ctx.passengerInitials,
         pickupAddress: ctx.pickupAddress,
@@ -763,6 +906,9 @@ class DriverFlowController extends ChangeNotifier {
   bool get canCompleteTrip =>
       onboardPassengers.isNotEmpty && completedPassengerCount == onboardPassengers.length;
 
+  /// True when there are still passengers who have not been completed.
+  bool get hasRemainingPassengers => nextIncompletePassenger != null;
+
   TripPassenger? get nextIncompletePassenger {
     for (final TripPassenger p in onboardPassengers) {
       if (!p.completed) return p;
@@ -787,10 +933,88 @@ class DriverFlowController extends ChangeNotifier {
     return "Complete $first's Trip";
   }
 
+  /// Complete a single passenger's trip — marks them done, generates a
+  /// per-passenger receipt summary.  If this was the last passenger,
+  /// calls [endTrip] to finalize the backend state.
+  ///
+  /// Returns `true` when the caller should navigate to the receipt screen.
+  Future<bool> completePassengerTrip(String passengerId) async {
+    // Find the passenger before marking them done
+    final TripPassenger? passenger = onboardPassengers
+        .where((TripPassenger p) => p.id == passengerId)
+        .cast<TripPassenger?>()
+        .firstOrNull;
+    if (passenger == null || passenger.completed) return false;
+
+    // Mark completed in local state
+    markPassengerCompleted(passengerId);
+    lastCompletedPassenger = passenger;
+
+    final ctx = tripAnchorOffer;
+    final String reference = ctx?.reference ?? 'TK-XXXXXXX';
+    final String pickupAddr = passenger.pickupAddress;
+    final String dropoffAddr = passenger.dropoffAddress;
+    final String fare = passenger.fareDisplay ?? ctx?.estimatedFare ?? 'PHP 0.00';
+
+    // Check if all passengers are now completed
+    final bool allDone = !hasRemainingPassengers;
+    final bool isAnchor = ctx != null &&
+        ctx.bookingId != null &&
+        passenger.bookingId != null &&
+        passenger.bookingId == ctx.bookingId;
+
+    if (allDone || isAnchor) {
+      // Anchor passenger or last passenger — call endTrip to finalize on the backend
+      // But only force phase completion and clear context if all passengers are done
+      await endTrip(forceCompletePhase: allDone);
+      if (lastError != null) return false;
+
+      // Use the official tripSummary from endTrip but override passenger-specific fields
+      passengerTripSummary = tripSummary ?? DriverTripSummary(
+        bookingReference: reference,
+        receiptNumber: 'RCP-${DateTime.now().millisecondsSinceEpoch}',
+        finalFare: fare,
+        distance: ctx?.estimatedDistance ?? '—',
+        duration: ctx?.estimatedDuration ?? '—',
+        startTime: DateTime.now().toIso8601String(),
+        endTime: DateTime.now().toIso8601String(),
+        passengerName: passenger.name,
+        routeLabel: '$pickupAddr → $dropoffAddr',
+        passengerCount: allDone ? onboardPassengers.length : 1,
+        collectSubtitle: 'Collect cash payment from ${passenger.name}',
+      );
+    } else {
+      // Mid-trip passenger completion (walk-ins) — generate a local receipt summary
+      passengerTripSummary = DriverTripSummary(
+        bookingReference: reference,
+        receiptNumber: 'RCP-${DateTime.now().millisecondsSinceEpoch}',
+        finalFare: fare,
+        distance: ctx?.estimatedDistance ?? '—',
+        duration: ctx?.estimatedDuration ?? '—',
+        startTime: DateTime.now().toIso8601String(),
+        endTime: DateTime.now().toIso8601String(),
+        passengerName: passenger.name,
+        routeLabel: '$pickupAddr → $dropoffAddr',
+        passengerCount: 1,
+        collectSubtitle: 'Collect cash payment from ${passenger.name}',
+      );
+    }
+
+    notifyListeners();
+    return true;
+  }
+
+  /// Clear the per-passenger receipt so the driver can return to trip screen.
+  void clearPassengerReceipt() {
+    passengerTripSummary = null;
+    lastCompletedPassenger = null;
+    notifyListeners();
+  }
+
   Future<void> completeNextTripLeg() async {
     final TripPassenger? next = nextIncompletePassenger;
     if (next != null) {
-      markPassengerCompleted(next.id);
+      await completePassengerTrip(next.id);
     }
   }
 
@@ -822,7 +1046,10 @@ class DriverFlowController extends ChangeNotifier {
     waitingPassengers = <TripPassenger>[];
     onboardPassengers = <TripPassenger>[];
     tripSummary = null;
+    passengerTripSummary = null;
+    lastCompletedPassenger = null;
     activeWaitingPassengerId = null;
+    offerSurfaceSuppressed = false;
     phase = DriverPhase.waitingOffers;
     stopLocationPing();
     notifyListeners();

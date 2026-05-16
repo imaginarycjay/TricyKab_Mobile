@@ -38,6 +38,8 @@ class HttpDriverFlowRepository implements DriverFlowRepository {
   Map<String, String> _headers({bool jsonBody = false, String? idempotencyKey}) {
     final h = <String, String>{
       'Accept': 'application/json',
+      // Avoid ngrok's interstitial "browser warning" page on tunneled traffic.
+      'ngrok-skip-browser-warning': 'true',
     };
     if (jsonBody) {
       h['Content-Type'] = 'application/json';
@@ -116,7 +118,8 @@ class HttpDriverFlowRepository implements DriverFlowRepository {
       destinationAddress: '${destination['address'] ?? ''}',
       passengerName: passenger['display_name'] as String?,
       passengerInitials: passenger['initials'] as String?,
-      fareAmount: b['estimated_fare'] as String?,
+      // API returns "25.00" string today, but guard if numeric slips through.
+      fareAmount: b['estimated_fare'] == null ? null : '${b['estimated_fare']}',
       estimatedDistanceMeters: (b['estimated_distance_meters'] as num?)?.toInt(),
       estimatedDurationSeconds: (b['estimated_duration_seconds'] as num?)?.toInt(),
       createdAtIso: b['created_at'] as String?,
@@ -179,6 +182,50 @@ class HttpDriverFlowRepository implements DriverFlowRepository {
       }
     }
     return _accessToken != null;
+  }
+
+  @override
+  Future<DriverMeProfile?> myProfile() async {
+    final r = await http.get(_u('/drivers/me/profile'), headers: _headers());
+    final map = await _decode(r);
+    if (r.statusCode >= 400 || map['success'] != true) {
+      return null;
+    }
+    final data = map['data'];
+    if (data is! Map<String, dynamic>) return null;
+    final driver = (data['driver'] as Map?)?.cast<String, dynamic>();
+    if (driver == null) return null;
+    final toda = (data['toda'] as Map?)?.cast<String, dynamic>();
+    final tricycle = (data['tricycle'] as Map?)?.cast<String, dynamic>();
+
+    final fullName = (driver['full_name'] as String?)?.trim();
+    final first = (driver['first_name'] as String?)?.trim() ?? '';
+    final last = (driver['last_name'] as String?)?.trim() ?? '';
+    final name = (fullName != null && fullName.isNotEmpty) ? fullName : ('$first $last').trim();
+    final initials = name.isNotEmpty
+        ? name
+            .split(RegExp(r'\s+'))
+            .where((p) => p.isNotEmpty)
+            .take(2)
+            .map((p) => p[0].toUpperCase())
+            .join()
+        : '?';
+
+    final ratingRaw = driver['rating'];
+    final rating = ratingRaw is num ? ratingRaw.toDouble() : double.tryParse('$ratingRaw');
+
+    return DriverMeProfile(
+      driverId: (driver['id'] as num?)?.toInt() ?? 0,
+      fullName: name.isEmpty ? 'Driver' : name,
+      initials: initials.isEmpty ? '?' : initials,
+      phone: driver['contact_number'] as String?,
+      licenseNumber: driver['license_number'] as String?,
+      rating: rating,
+      todaName: toda?['name'] as String?,
+      tricycleBodyNumber: tricycle?['body_number'] as String?,
+      tricyclePlateNumber: tricycle?['plate_number'] as String?,
+      tricycleCapacity: (tricycle?['capacity'] as num?)?.toInt(),
+    );
   }
 
   @override
@@ -269,6 +316,7 @@ class HttpDriverFlowRepository implements DriverFlowRepository {
     required double endLongitude,
     String? fareAmount,
     double? accuracy,
+    bool preserveContext = false,
   }) async {
     await _postGeo(
       '/drivers/trips/$tripId/end',
@@ -306,7 +354,10 @@ class HttpDriverFlowRepository implements DriverFlowRepository {
     final pickupAddr = ctx?.pickupAddress ?? '';
     final destAddr = ctx?.destinationAddress ?? '';
     final passengerName = ctx?.passengerName ?? 'Passenger';
-    _tripContext = null;
+    
+    if (!preserveContext) {
+      _tripContext = null;
+    }
 
     return DriverTripSummary(
       bookingReference: bookingReference,
@@ -356,7 +407,12 @@ class HttpDriverFlowRepository implements DriverFlowRepository {
       body: jsonEncode(body),
     );
     final map = await _decode(r);
-    return r.statusCode < 400 && map['success'] == true;
+    if (r.statusCode >= 400 || map['success'] != true) {
+      throw StateError('Availability update failed (${r.statusCode})');
+    }
+
+    // The API response is an ack; preserve the desired online/offline state.
+    return online;
   }
 
   @override
@@ -413,6 +469,7 @@ class HttpDriverFlowRepository implements DriverFlowRepository {
     final DriverOffer o = accepted.first;
     final TripPassenger tp = TripPassenger(
       id: 'wait-${o.id}',
+      bookingId: o.bookingId,
       name: o.passengerName,
       initials: o.passengerInitials,
       pickupAddress: o.pickupAddress,
@@ -505,5 +562,26 @@ class HttpDriverFlowRepository implements DriverFlowRepository {
     final raw = data is Map<String, dynamic> ? data['booking'] : null;
     if (raw is! Map) return null;
     return _historyFromApi(raw.cast<String, dynamic>());
+  }
+
+  @override
+  Future<void> submitDispute({
+    required int bookingId,
+    required String disputeType,
+    required String description,
+  }) async {
+    final r = await http.post(
+      _u('/bookings/$bookingId/dispute'),
+      headers: _headers(
+        jsonBody: true,
+        idempotencyKey: newIdempotencyKey('dispute-$bookingId'),
+      ),
+      body: jsonEncode({'dispute_type': disputeType, 'description': description}),
+    );
+    final map = await _decode(r);
+    if (r.statusCode >= 400 || map['success'] != true) {
+      final err = (map['error'] as Map<String, dynamic>?)?['message'];
+      throw StateError(err is String && err.isNotEmpty ? err : 'Dispute failed (${r.statusCode})');
+    }
   }
 }

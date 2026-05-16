@@ -5,22 +5,33 @@ import '../../../core/widgets/app_header.dart';
 import '../../../core/widgets/bottom_nav.dart';
 import '../../../core/widgets/info_row.dart';
 import '../../../core/widgets/status_badge.dart';
-import '../../../data/mock_data.dart';
 import '../../../navigation/app_router.dart';
 import '../../driver_flow/driver_flow_scope.dart';
+import '../../driver_flow/domain/driver_performance_stats.dart';
 
 /// PRD §16.1 driver profile + compliance.
-///
-/// MVP scope: TODA, plate, license verification status are read-only because
-/// the backend exposes no `GET /drivers/me` endpoint yet — admin Blade is
-/// the source of truth.  This screen also hosts settings shortcuts (API base,
-/// sign-out) so the operator does not need to re-enter through Login.
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
+
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  bool _loadedOnce = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_loadedOnce) return;
+    _loadedOnce = true;
+    DriverFlowScope.of(context).loadBookings(forceNetwork: false);
+  }
 
   @override
   Widget build(BuildContext context) {
     final flow = DriverFlowScope.of(context);
+    final me = flow.me;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -50,9 +61,9 @@ class ProfileScreen extends StatelessWidget {
                           borderRadius: BorderRadius.circular(16),
                         ),
                         alignment: Alignment.center,
-                        child: const Text(
-                          MockDriver.initials,
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.primary),
+                        child: Text(
+                          me?.initials ?? '—',
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.primary),
                         ),
                       ),
                       const SizedBox(width: 14),
@@ -60,13 +71,13 @@ class ProfileScreen extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
-                              MockDriver.fullName,
-                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                            Text(
+                              me?.fullName ?? 'Driver',
+                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              '${MockDriver.todaName} · ${MockDriver.plateNumber}',
+                              me?.meta ?? '—',
                               style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
                             ),
                             const SizedBox(height: 6),
@@ -78,7 +89,7 @@ class ProfileScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 16),
-                _SectionTitle('Compliance'),
+                const _SectionTitle('Compliance'),
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
@@ -88,14 +99,14 @@ class ProfileScreen extends StatelessWidget {
                       BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 12, offset: const Offset(0, 4)),
                     ],
                   ),
-                  child: const Column(
+                  child: Column(
                     children: [
-                      InfoRow(label: 'Phone', value: MockDriver.phoneNumber),
-                      InfoRow(label: "Driver's License", value: MockDriver.licenseNumber),
-                      InfoRow(label: 'TODA', value: MockDriver.todaName),
-                      InfoRow(label: 'Plate Number', value: MockDriver.plateNumber),
-                      InfoRow(label: 'Capacity', value: '${MockDriver.capacity} passengers'),
-                      InfoRow(label: 'Verification', value: 'APPROVED', valueColor: AppColors.success, showBorder: false),
+                      InfoRow(label: 'Phone', value: me?.phone ?? '—'),
+                      InfoRow(label: "Driver's License", value: me?.licenseNumber ?? '—'),
+                      InfoRow(label: 'TODA', value: me?.todaName ?? '—'),
+                      InfoRow(label: 'Plate Number', value: me?.tricyclePlateNumber ?? '—'),
+                      InfoRow(label: 'Capacity', value: '${me?.tricycleCapacity ?? flow.capacity} passengers'),
+                      const InfoRow(label: 'Verification', value: 'APPROVED', valueColor: AppColors.success, showBorder: false),
                     ],
                   ),
                 ),
@@ -120,44 +131,76 @@ class ProfileScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 16),
-                _SectionTitle('Performance'),
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: AppColors.cardBackground,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 12, offset: const Offset(0, 4)),
-                    ],
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: _StatTile(
-                          label: 'Trips today',
-                          value: '${MockDriver.todayTrips}',
-                          color: AppColors.primary,
-                        ),
-                      ),
-                      Expanded(
-                        child: _StatTile(
-                          label: 'Accept rate',
-                          value: MockDriver.acceptRate,
-                          color: AppColors.success,
-                        ),
-                      ),
-                      Expanded(
-                        child: _StatTile(
-                          label: 'Rating',
-                          value: '${MockDriver.ratingAvg.toStringAsFixed(1)}★',
-                          color: AppColors.warning,
-                        ),
-                      ),
-                    ],
-                  ),
+                Row(
+                  children: [
+                    const Expanded(child: _SectionTitle('Performance')),
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pushNamed(AppRouter.earnings),
+                      child: const Text('See all'),
+                    ),
+                  ],
                 ),
+                ListenableBuilder(
+                  listenable: flow,
+                  builder: (context, _) {
+                    final week = DriverPerformanceStats.forPeriod(
+                      flow.bookings ?? const [],
+                      PerformancePeriod.thisWeek,
+                    );
+                    final today = DriverPerformanceStats.forPeriod(
+                      flow.bookings ?? const [],
+                      PerformancePeriod.today,
+                    );
+                    final loading = flow.bookings == null && flow.bookingsLoadError == null;
+                    return Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: AppColors.cardBackground,
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 12, offset: const Offset(0, 4)),
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: _StatTile(
+                              label: 'Trips this week',
+                              value: loading ? '…' : '${week.tripCount}',
+                              color: AppColors.primary,
+                            ),
+                          ),
+                          Expanded(
+                            child: _StatTile(
+                              label: 'Earned this week',
+                              value: loading ? '…' : 'PHP ${week.earned.toStringAsFixed(0)}',
+                              color: AppColors.primary,
+                            ),
+                          ),
+                          Expanded(
+                            child: _StatTile(
+                              label: 'Today',
+                              value: loading ? '…' : '${today.tripCount}',
+                              color: AppColors.success,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+                if (me?.rating != null) ...[
+                  const SizedBox(height: 4),
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4, top: 4),
+                    child: Text(
+                      '${me!.rating!.toStringAsFixed(1)}★ average rating',
+                      style: const TextStyle(fontSize: 11, color: AppColors.warning),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 16),
-                _SectionTitle('Account'),
+                const _SectionTitle('Account'),
                 _LinkTile(
                   icon: Icons.history_outlined,
                   label: 'Trip history',
@@ -169,18 +212,17 @@ class ProfileScreen extends StatelessWidget {
                   onTap: () => Navigator.of(context).pushNamed(AppRouter.earnings),
                 ),
                 _LinkTile(
-                  icon: Icons.settings_outlined,
-                  label: 'API base / settings',
-                  onTap: () => Navigator.of(context).pushNamed('/settings'),
-                ),
-                _LinkTile(
                   icon: Icons.logout,
                   label: 'Sign out',
                   isDestructive: true,
-                  onTap: () => Navigator.of(context).pushNamedAndRemoveUntil(
-                    '/settings',
-                    (Route<dynamic> route) => false,
-                  ),
+                  onTap: () async {
+                    await flow.signOut();
+                    if (!context.mounted) return;
+                    Navigator.of(context).pushNamedAndRemoveUntil(
+                      AppRouter.login,
+                      (Route<dynamic> route) => false,
+                    );
+                  },
                 ),
                 const SizedBox(height: 24),
               ],
@@ -190,9 +232,9 @@ class ProfileScreen extends StatelessWidget {
             currentIndex: 2,
             onTap: (index) {
               if (index == 0) {
-                Navigator.of(context).pushReplacementNamed(AppRouter.home);
+                AppRouter.navigateTab(context, fromIndex: 2, toIndex: 0, routeName: AppRouter.home);
               } else if (index == 1) {
-                Navigator.of(context).pushReplacementNamed(AppRouter.tripHistory);
+                AppRouter.navigateTab(context, fromIndex: 2, toIndex: 1, routeName: AppRouter.tripHistory);
               }
             },
           ),
@@ -226,9 +268,9 @@ class _StatTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: color)),
+        Text(value, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: color)),
         const SizedBox(height: 4),
-        Text(label, style: const TextStyle(fontSize: 11, color: AppColors.textMuted)),
+        Text(label, textAlign: TextAlign.center, style: const TextStyle(fontSize: 10, color: AppColors.textMuted)),
       ],
     );
   }

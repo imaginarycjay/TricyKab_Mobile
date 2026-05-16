@@ -18,6 +18,23 @@ class MockDriverFlowRepository implements DriverFlowRepository {
   }
 
   @override
+  Future<DriverMeProfile?> myProfile() async {
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    return const DriverMeProfile(
+      driverId: 1,
+      fullName: MockDriver.fullName,
+      initials: MockDriver.initials,
+      phone: MockDriver.phoneNumber,
+      licenseNumber: MockDriver.licenseNumber,
+      rating: MockDriver.ratingAvg,
+      todaName: MockDriver.todaName,
+      tricycleBodyNumber: 'KB-001',
+      tricyclePlateNumber: MockDriver.plateNumber,
+      tricycleCapacity: MockDriver.capacity,
+    );
+  }
+
+  @override
   Future<bool> updateAvailability(bool online, {double? latitude, double? longitude}) async {
     await Future<void>.delayed(const Duration(milliseconds: 300));
     return online;
@@ -74,6 +91,7 @@ class MockDriverFlowRepository implements DriverFlowRepository {
     required double endLongitude,
     String? fareAmount,
     double? accuracy,
+    bool preserveContext = false,
   }) async {
     await Future<void>.delayed(const Duration(milliseconds: 200));
     return DriverTripSummary(
@@ -148,6 +166,7 @@ class MockDriverFlowRepository implements DriverFlowRepository {
       waiting.add(
         TripPassenger(
           id: 'wait-${o.id}',
+          bookingId: o.bookingId,
           name: o.passengerName,
           initials: o.passengerInitials,
           pickupAddress: o.pickupAddress,
@@ -228,5 +247,15 @@ class MockDriverFlowRepository implements DriverFlowRepository {
       if (r.id == bookingId) return r;
     }
     return null;
+  }
+
+  @override
+  Future<void> submitDispute({
+    required int bookingId,
+    required String disputeType,
+    required String description,
+  }) async {
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    // Mock: silently succeeds — real backend is used in production.
   }
 }

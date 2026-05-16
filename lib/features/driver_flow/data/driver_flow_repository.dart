@@ -14,6 +14,9 @@ abstract class DriverFlowRepository {
 
   Future<bool> verifyOtp(String phoneNumber, String otpCode);
 
+  /// Load the authenticated driver's profile (name/TODA/tricycle).
+  Future<DriverMeProfile?> myProfile();
+
   /// Posts current online/offline state with the freshest GPS available.
   ///
   /// PRD §14.1 — when [online] is true, the driver service expects
@@ -58,6 +61,7 @@ abstract class DriverFlowRepository {
     required double endLongitude,
     String? fareAmount,
     double? accuracy,
+    bool preserveContext = false,
   });
 
   /// Send a single GPS sample. Used by the in-trip 10s ping and the
@@ -85,8 +89,17 @@ abstract class DriverFlowRepository {
   /// authenticated driver; backend defaults to the latest 50.
   Future<List<DriverHistoryBooking>> myBookings({bool active = false});
 
-  /// PRD §16 booking detail (for driver Trip History row tap).
+  /// PRD §7.19 booking detail (for driver Trip History row tap).
   Future<DriverHistoryBooking?> bookingDetail(int bookingId);
+
+  /// PRD §7.19 — file a dispute (driver role) on a booking.
+  ///
+  /// [disputeType]: FARE | NO_SHOW | GPS | CONDUCT | SAFETY | OTHER
+  Future<void> submitDispute({
+    required int bookingId,
+    required String disputeType,
+    required String description,
+  });
 
   /// True when the implementation can poll backend offers / send GPS pings.
   /// Mocks return false so the controller never starts timers.

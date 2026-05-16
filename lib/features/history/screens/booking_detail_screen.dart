@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/driver_dispute_sheet.dart';
 import '../../../core/widgets/info_row.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../../driver_flow/domain/driver_flow_models.dart';
@@ -18,12 +19,29 @@ class BookingDetailScreen extends StatefulWidget {
 }
 
 class _BookingDetailScreenState extends State<BookingDetailScreen> {
-  late Future<DriverHistoryBooking?> _future;
+  DriverHistoryBooking? _booking;
+  bool _loading = true;
+  String? _error;
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _future = DriverFlowScope.of(context).repository.bookingDetail(widget.bookingId);
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _load(forceNetwork: false));
+  }
+
+  Future<void> _load({required bool forceNetwork}) async {
+    final flow = DriverFlowScope.of(context);
+    setState(() {
+      if (_booking == null) _loading = true;
+      _error = null;
+    });
+    final detail = await flow.bookingDetail(widget.bookingId, forceNetwork: forceNetwork);
+    if (!mounted) return;
+    setState(() {
+      _booking = detail;
+      _loading = false;
+      if (detail == null) _error = 'Booking not found.';
+    });
   }
 
   @override
@@ -35,31 +53,50 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
         backgroundColor: AppColors.cardBackground,
         elevation: 0,
         foregroundColor: AppColors.textPrimary,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _loading ? null : () => _load(forceNetwork: true),
+            tooltip: 'Refresh',
+          ),
+        ],
       ),
-      body: FutureBuilder<DriverHistoryBooking?>(
-        future: _future,
-        builder: (context, snap) {
-          if (snap.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          final b = snap.data;
-          if (b == null) {
-            return const Center(child: Text('Booking not found.'));
-          }
-          return ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              _routeCard(b),
-              const SizedBox(height: 12),
-              _detailsCard(b),
-              const SizedBox(height: 12),
-              _passengerCard(b),
-              const SizedBox(height: 12),
-              _statusTimeline(b),
-            ],
-          );
-        },
-      ),
+      body: _loading && _booking == null
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+              ? Center(child: Text(_error!))
+              : _buildBody(_booking!),
+    );
+  }
+
+  Widget _buildBody(DriverHistoryBooking b) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        _routeCard(b),
+        const SizedBox(height: 12),
+        _detailsCard(b),
+        const SizedBox(height: 12),
+        _passengerCard(b),
+        const SizedBox(height: 12),
+        _statusTimeline(b),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          onPressed: () {
+            final flow = DriverFlowScope.of(context);
+            DriverDisputeSheet.show(
+              context,
+              onSubmit: (type, description) => flow.repository.submitDispute(
+                bookingId: b.id,
+                disputeType: type,
+                description: description,
+              ),
+            );
+          },
+          icon: const Icon(Icons.flag_outlined),
+          label: const Text('Report issue'),
+        ),
+      ],
     );
   }
 
@@ -78,49 +115,18 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
         children: [
           Row(
             children: [
-              Text(
-                b.reference,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-              const Spacer(),
               StatusBadge.fromStatus(b.status),
+              const SizedBox(width: 8),
+              StatusBadge.rideType(b.rideType == RideType.special ? 'SPECIAL' : 'SHARED'),
             ],
           ),
           const SizedBox(height: 12),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Icon(Icons.trip_origin, color: AppColors.success, size: 16),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  b.pickupAddress,
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                ),
-              ),
-            ],
+          Text(
+            '${b.pickupAddress} → ${b.destinationAddress}',
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
           ),
-          Padding(
-            padding: const EdgeInsets.only(left: 7, top: 4, bottom: 4),
-            child: Container(width: 2, height: 18, color: AppColors.borderLight),
-          ),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Icon(Icons.place, color: AppColors.danger, size: 18),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  b.destinationAddress,
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                ),
-              ),
-            ],
-          ),
+          const SizedBox(height: 8),
+          Text(b.reference, style: const TextStyle(fontSize: 12, color: AppColors.textMuted)),
         ],
       ),
     );
@@ -132,22 +138,12 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
       decoration: BoxDecoration(
         color: AppColors.cardBackground,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 12, offset: const Offset(0, 4)),
-        ],
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Trip Details', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 8),
-          InfoRow(
-            label: 'Ride Type',
-            value: b.rideType == RideType.special ? 'SPECIAL' : 'SHARED',
-          ),
+          InfoRow(label: 'Fare', value: b.fareDisplay),
           InfoRow(label: 'Distance', value: b.distanceLabel),
-          InfoRow(label: 'Duration (est.)', value: b.durationLabel),
-          InfoRow(label: 'Fare', value: b.fareDisplay, valueColor: AppColors.primary, showBorder: false),
+          InfoRow(label: 'Duration', value: b.durationLabel, showBorder: false),
         ],
       ),
     );
@@ -159,40 +155,21 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
       decoration: BoxDecoration(
         color: AppColors.cardBackground,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 12, offset: const Offset(0, 4)),
-        ],
       ),
       child: Row(
         children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: AppColors.primary10,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            alignment: Alignment.center,
+          CircleAvatar(
+            backgroundColor: AppColors.primary10,
             child: Text(
               b.passengerInitials ?? '?',
-              style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.primary),
+              style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w800),
             ),
           ),
           const SizedBox(width: 12),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  b.passengerName ?? 'Passenger',
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 2),
-                const Text(
-                  'Direct contact deferred (PRD §15.3)',
-                  style: TextStyle(fontSize: 11, color: AppColors.textMuted),
-                ),
-              ],
+            child: Text(
+              b.passengerName ?? 'Passenger',
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
             ),
           ),
         ],
@@ -201,68 +178,21 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
   }
 
   Widget _statusTimeline(DriverHistoryBooking b) {
-    final entries = <_TimelineEntry>[
-      _TimelineEntry('Created', b.createdAtIso),
-      _TimelineEntry('Accepted', b.acceptedAtIso),
-      if (b.cancelledAtIso != null) _TimelineEntry('Cancelled', b.cancelledAtIso),
-    ];
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppColors.cardBackground,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 12, offset: const Offset(0, 4)),
-        ],
+        color: AppColors.subtleBackground,
+        borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Timeline', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 8),
-          for (final e in entries) _timelineRow(e),
+          const Text('Timeline', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+          if (b.createdAtIso != null) Text('Created: ${b.createdAtIso}', style: const TextStyle(fontSize: 11)),
+          if (b.acceptedAtIso != null) Text('Accepted: ${b.acceptedAtIso}', style: const TextStyle(fontSize: 11)),
+          if (b.cancelledAtIso != null) Text('Cancelled: ${b.cancelledAtIso}', style: const TextStyle(fontSize: 11)),
         ],
       ),
     );
   }
-
-  Widget _timelineRow(_TimelineEntry e) {
-    final dt = e.iso;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: [
-          const Icon(Icons.fiber_manual_record, size: 10, color: AppColors.primary),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              e.label,
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-            ),
-          ),
-          Text(
-            dt == null ? '—' : _short(dt),
-            style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _short(String iso) {
-    try {
-      final dt = DateTime.parse(iso).toLocal();
-      final h = dt.hour == 0 ? 12 : (dt.hour > 12 ? dt.hour - 12 : dt.hour);
-      final ampm = dt.hour >= 12 ? 'PM' : 'AM';
-      return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')} $h:${dt.minute.toString().padLeft(2, '0')} $ampm';
-    } catch (_) {
-      return iso;
-    }
-  }
-}
-
-class _TimelineEntry {
-  const _TimelineEntry(this.label, this.iso);
-  final String label;
-  final String? iso;
 }

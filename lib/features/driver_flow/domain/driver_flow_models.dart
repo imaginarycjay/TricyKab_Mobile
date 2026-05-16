@@ -104,6 +104,7 @@ class TripPassenger {
     required this.name,
     required this.pickupAddress,
     required this.dropoffAddress,
+    this.bookingId,
     this.initials,
     this.rideType,
     this.fareDisplay,
@@ -113,6 +114,8 @@ class TripPassenger {
   });
 
   final String id;
+  /// Server booking id when this row maps to the dispatched booking (walk-ins use null).
+  final int? bookingId;
   final String name;
   final String pickupAddress;
   final String dropoffAddress;
@@ -126,6 +129,7 @@ class TripPassenger {
 
   TripPassenger copyWith({
     String? id,
+    int? bookingId,
     String? name,
     String? pickupAddress,
     String? dropoffAddress,
@@ -138,6 +142,7 @@ class TripPassenger {
   }) {
     return TripPassenger(
       id: id ?? this.id,
+      bookingId: bookingId ?? this.bookingId,
       name: name ?? this.name,
       pickupAddress: pickupAddress ?? this.pickupAddress,
       dropoffAddress: dropoffAddress ?? this.dropoffAddress,
@@ -245,6 +250,51 @@ class DriverHistoryBooking {
     if (s >= 60) return '~${(s / 60).round()} min';
     return '${s}s';
   }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'reference': reference,
+        'status': status,
+        'ride_type': rideType == RideType.special ? 'SPECIAL' : 'SHARED',
+        'pickup_address': pickupAddress,
+        'destination_address': destinationAddress,
+        'passenger_name': passengerName,
+        'passenger_initials': passengerInitials,
+        'fare_amount': fareAmount,
+        'estimated_distance_meters': estimatedDistanceMeters,
+        'estimated_duration_seconds': estimatedDurationSeconds,
+        'created_at': createdAtIso,
+        'accepted_at': acceptedAtIso,
+        'cancelled_at': cancelledAtIso,
+        'pickup_lat': pickupLat,
+        'pickup_lng': pickupLng,
+        'destination_lat': destinationLat,
+        'destination_lng': destinationLng,
+      };
+
+  static DriverHistoryBooking fromJson(Map<String, dynamic> json) {
+    final rideRaw = '${json['ride_type'] ?? 'SHARED'}'.toUpperCase();
+    return DriverHistoryBooking(
+      id: (json['id'] as num).toInt(),
+      reference: '${json['reference'] ?? ''}',
+      status: '${json['status'] ?? ''}',
+      rideType: rideRaw == 'SPECIAL' ? RideType.special : RideType.shared,
+      pickupAddress: '${json['pickup_address'] ?? ''}',
+      destinationAddress: '${json['destination_address'] ?? ''}',
+      passengerName: json['passenger_name'] as String?,
+      passengerInitials: json['passenger_initials'] as String?,
+      fareAmount: json['fare_amount'] as String?,
+      estimatedDistanceMeters: (json['estimated_distance_meters'] as num?)?.toInt(),
+      estimatedDurationSeconds: (json['estimated_duration_seconds'] as num?)?.toInt(),
+      createdAtIso: json['created_at'] as String?,
+      acceptedAtIso: json['accepted_at'] as String?,
+      cancelledAtIso: json['cancelled_at'] as String?,
+      pickupLat: (json['pickup_lat'] as num?)?.toDouble(),
+      pickupLng: (json['pickup_lng'] as num?)?.toDouble(),
+      destinationLat: (json['destination_lat'] as num?)?.toDouble(),
+      destinationLng: (json['destination_lng'] as num?)?.toDouble(),
+    );
+  }
 }
 
 class DriverTripSummary {
@@ -273,4 +323,38 @@ class DriverTripSummary {
   final String routeLabel;
   final int passengerCount;
   final String collectSubtitle;
+}
+
+class DriverMeProfile {
+  const DriverMeProfile({
+    required this.driverId,
+    required this.fullName,
+    required this.initials,
+    this.phone,
+    this.licenseNumber,
+    this.rating,
+    this.todaName,
+    this.tricycleBodyNumber,
+    this.tricyclePlateNumber,
+    this.tricycleCapacity,
+  });
+
+  final int driverId;
+  final String fullName;
+  final String initials;
+  final String? phone;
+  final String? licenseNumber;
+  final double? rating;
+  final String? todaName;
+  final String? tricycleBodyNumber;
+  final String? tricyclePlateNumber;
+  final int? tricycleCapacity;
+
+  String get meta {
+    final parts = <String>[];
+    if ((todaName ?? '').isNotEmpty) parts.add(todaName!);
+    final plate = (tricyclePlateNumber ?? '').trim();
+    if (plate.isNotEmpty) parts.add(plate);
+    return parts.isEmpty ? '—' : parts.join(' · ');
+  }
 }

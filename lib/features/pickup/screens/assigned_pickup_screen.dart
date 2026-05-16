@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/info_row.dart';
+import '../../../core/widgets/live_map.dart';
 import '../../driver_flow/domain/driver_flow_models.dart';
 import '../../driver_flow/driver_flow_controller.dart';
 import '../../driver_flow/driver_flow_scope.dart';
@@ -38,7 +39,7 @@ class _AssignedPickupScreenState extends State<AssignedPickupScreen> {
         backgroundColor: AppColors.background,
         body: Center(
           child: ElevatedButton(
-            onPressed: () => Navigator.of(context).pushReplacementNamed(AppRouter.home),
+            onPressed: () => AppRouter.navigateHome(context),
             child: const Text('Back to Home'),
           ),
         ),
@@ -47,7 +48,34 @@ class _AssignedPickupScreenState extends State<AssignedPickupScreen> {
 
     final int paxCount = flow.waitingPassengers.length + flow.onboardPassengers.length;
 
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        final shouldLeave = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Leave active trip?'),
+            content: const Text(
+              'You have an active assignment. Going back to home will not cancel it — you can resume from the home screen.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Stay'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Go to Home'),
+              ),
+            ],
+          ),
+        );
+        if (shouldLeave == true && context.mounted) {
+          AppRouter.navigateHome(context);
+        }
+      },
+      child: Scaffold(
       backgroundColor: AppColors.background,
       body: Column(
         children: [
@@ -169,7 +197,8 @@ class _AssignedPickupScreenState extends State<AssignedPickupScreen> {
                           TextButton(
                             onPressed: () {
                               flow.openIncomingOffersFromPickup();
-                              Navigator.of(context).pushNamed(
+                              AppRouter.navigateModal(
+                                context,
                                 AppRouter.incomingOffer,
                                 arguments: true,
                               );
@@ -186,7 +215,7 @@ class _AssignedPickupScreenState extends State<AssignedPickupScreen> {
                       ),
                     ),
                   if (flow.showIncomingOfferBanner) const SizedBox(height: 12),
-                  _buildMapCard(),
+                  _buildMapCard(flow),
                   const SizedBox(height: 12),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -230,8 +259,14 @@ class _AssignedPickupScreenState extends State<AssignedPickupScreen> {
                         isActive: flow.activeWaitingPassengerId == p.id,
                         isExpanded: _expandedPassengers.contains(p.id),
                         onToggleDetails: () => _togglePassengerDetails(p.id),
-                        onArrived: () {
+                        onArrived: () async {
                           flow.selectWaitingPassenger(p.id);
+                          if (flow.phase == DriverPhase.assigned) {
+                            flow.markOnTheWay();
+                          }
+                          if (flow.phase == DriverPhase.onTheWay) {
+                            await flow.markArrived();
+                          }
                           setState(() {});
                         },
                       ),
@@ -251,7 +286,7 @@ class _AssignedPickupScreenState extends State<AssignedPickupScreen> {
                     ),
                   ),
                   const SizedBox(height: 10),
-                  _PickupNotesBanner(),
+                  _PickupNotesBanner(flow: flow),
                   const SizedBox(height: 14),
                   if (flow.lastError != null) ...[
                     Container(
@@ -312,7 +347,8 @@ class _AssignedPickupScreenState extends State<AssignedPickupScreen> {
           ),
         ],
       ),
-    );
+    ),
+  );
   }
 
   IconData _phaseIcon(DriverPhase phase) {
@@ -333,12 +369,11 @@ class _AssignedPickupScreenState extends State<AssignedPickupScreen> {
   }
 
   Future<void> _onPrimaryTap(BuildContext context, DriverFlowController flow) async {
-    final navigator = Navigator.of(context);
     final messenger = ScaffoldMessenger.of(context);
     final goTrip = await flow.advancePickupPrimary();
     if (!mounted) return;
     if (goTrip) {
-      navigator.pushReplacementNamed(AppRouter.tripInProgress);
+      AppRouter.navigateForward(context, AppRouter.tripInProgress, replace: true);
     } else {
       setState(() {});
       if (flow.lastError != null) {
@@ -349,7 +384,6 @@ class _AssignedPickupScreenState extends State<AssignedPickupScreen> {
 
   Future<void> _confirmCancelAssignment(BuildContext context, DriverFlowController flow) async {
     final messenger = ScaffoldMessenger.of(context);
-    final navigator = Navigator.of(context);
     final reason = await showDialog<String>(
       context: context,
       builder: (BuildContext ctx) {
@@ -363,84 +397,58 @@ class _AssignedPickupScreenState extends State<AssignedPickupScreen> {
       messenger.showSnackBar(SnackBar(content: Text(flow.lastError!)));
       return;
     }
-    navigator.pushNamedAndRemoveUntil(
-      AppRouter.home,
-      (Route<dynamic> route) => false,
-    );
+    AppRouter.navigateHome(context);
   }
 
-  Widget _buildMapCard() {
-    return Container(
-      height: 220,
-      width: double.infinity,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        gradient: const LinearGradient(
-          colors: [Color(0xFFE8E6F0), Color(0xFFD4D0E8)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-      ),
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          const Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.directions_outlined, color: AppColors.textMuted, size: 28),
-                SizedBox(height: 4),
-                Text(
-                  'Optimized route to all waypoints',
-                  style: TextStyle(fontSize: 12, color: AppColors.textMuted),
-                ),
-              ],
-            ),
-          ),
-          Positioned(
-            top: 48,
-            right: 64,
-            child: _MapMarker(icon: Icons.electric_rickshaw_outlined, label: 'You', color: AppColors.primary),
-          ),
-          Positioned(
-            top: 96,
-            left: 46,
-            child: _MapMarker(icon: Icons.person_pin_circle_outlined, label: 'Jose — Pickup', color: AppColors.success),
-          ),
-          Positioned(
-            bottom: 48,
-            right: 42,
-            child: _MapMarker(icon: Icons.flag_outlined, label: 'Maria — USM', color: AppColors.danger),
-          ),
-          Positioned(
-            bottom: 78,
-            left: 94,
-            child: _MapMarker(icon: Icons.flag_outlined, label: 'Jose — Nongnongan', color: AppColors.danger),
-          ),
-          Positioned(
-            top: 88,
-            left: 72,
-            child: Transform.rotate(
-              angle: -0.26,
-              child: Container(
-                width: 120,
-                height: 3,
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.35),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
+  Widget _buildMapCard(DriverFlowController flow) {
+    final offer = flow.tripAnchorOffer;
+    return LiveMap(
+      height: 240,
+      pickupLat: offer?.pickupLatitude ?? 7.1083,
+      pickupLng: offer?.pickupLongitude ?? 124.8295,
+      destinationLat: offer?.destinationLatitude ?? 7.1117,
+      destinationLng: offer?.destinationLongitude ?? 124.8419,
+      showRoute: true,
+      showFullscreenButton: true,   // PRD §5A — fullscreen map toggle
+      // driverHasArrived defaults false: routes driver → pickup (en-route)
+      // Use real GPS position from the flow controller (updated by
+      // setAvailability, startLocationPing, and _bestEffortPosition).
+      // Fall back to a position near the pickup when GPS is unavailable.
+      driverLat: flow.lastLatitude ?? (offer?.pickupLatitude ?? 7.1083) - 0.002,
+      driverLng: flow.lastLongitude ?? (offer?.pickupLongitude ?? 124.8295) - 0.002,
     );
   }
 }
 
 class _PickupNotesBanner extends StatelessWidget {
+  const _PickupNotesBanner({required this.flow});
+  final DriverFlowController flow;
+
   @override
   Widget build(BuildContext context) {
+    final offer = flow.tripAnchorOffer;
+    final firstPassenger = flow.waitingPassengers.isNotEmpty
+        ? flow.waitingPassengers.first
+        : null;
+    final passengerName = firstPassenger?.name ?? offer?.passengerName ?? 'passenger';
+    final pickupAddress = firstPassenger?.pickupAddress ?? offer?.pickupAddress ?? 'pickup';
+
+    String taskText;
+    switch (flow.phase) {
+      case DriverPhase.assigned:
+      case DriverPhase.onTheWay:
+        taskText = 'Heading to $pickupAddress to pick up $passengerName.';
+        break;
+      case DriverPhase.arrived:
+        taskText = 'Arrived at pickup. Waiting for $passengerName.';
+        break;
+      case DriverPhase.inProgress:
+        taskText = 'Trip in progress with ${flow.onboardPassengers.length} passenger(s) onboard.';
+        break;
+      default:
+        taskText = 'Ready — awaiting next task.';
+    }
+
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -453,22 +461,12 @@ class _PickupNotesBanner extends StatelessWidget {
           const Icon(Icons.info_outline, color: AppColors.warning, size: 18),
           const SizedBox(width: 8),
           Expanded(
-            child: Text.rich(
-              TextSpan(
-                style: const TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.35),
-                children: <InlineSpan>[
-                  const TextSpan(text: 'Heading to '),
-                  const TextSpan(
-                    text: 'Poblacion Terminal',
-                    style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.textPrimary),
-                  ),
-                  const TextSpan(text: ' to pick up Jose Rizal. Estimated arrival in '),
-                  const TextSpan(
-                    text: '~3 min',
-                    style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.textPrimary),
-                  ),
-                  const TextSpan(text: '.'),
-                ],
+            child: Text(
+              taskText,
+              style: const TextStyle(
+                fontSize: 12,
+                color: AppColors.textSecondary,
+                height: 1.4,
               ),
             ),
           ),
@@ -504,7 +502,7 @@ class _WaitingPassengerCard extends StatelessWidget {
             .toUpperCase();
 
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       decoration: BoxDecoration(
         color: AppColors.cardBackground,
         borderRadius: BorderRadius.circular(12),
@@ -519,104 +517,149 @@ class _WaitingPassengerCard extends StatelessWidget {
           ),
         ],
       ),
-      child: Row(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: AppColors.primary10,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            alignment: Alignment.center,
-            child: Text(
-              initials,
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.primary),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: GestureDetector(
-              onTap: onToggleDetails,
-              behavior: HitTestBehavior.opaque,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(passenger.name, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
-                  const SizedBox(height: 3),
-                  Row(
+          // Header row: avatar | name + notes | arrived button
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: AppColors.primary10,
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  initials,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.primary,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: GestureDetector(
+                  onTap: onToggleDetails,
+                  behavior: HitTestBehavior.opaque,
+                  child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Icon(Icons.info_outline, size: 12, color: AppColors.warning),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          passenger.pickupNotes ?? 'Tap card to view booking details',
-                          style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Row(
-                    children: [
                       Text(
-                        isExpanded ? 'Hide booking details' : 'Tap card to view booking details',
+                        passenger.name,
                         style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textMuted,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
                         ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      const SizedBox(width: 4),
-                      Icon(
-                        isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
-                        size: 16,
-                        color: AppColors.textMuted,
-                      ),
-                    ],
-                  ),
-                  AnimatedCrossFade(
-                    firstChild: const SizedBox.shrink(),
-                    secondChild: Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Column(
-                        children: [
-                          if (passenger.rideType != null)
-                            InfoRow(
-                              label: 'Ride Type',
-                              value: passenger.rideType == RideType.shared ? 'SHARED' : 'SPECIAL',
+                      const SizedBox(height: 2),
+                      if (passenger.pickupNotes != null) ...[
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(Icons.info_outline, size: 11, color: AppColors.warning),
+                            const SizedBox(width: 3),
+                            Expanded(
+                              child: Text(
+                                passenger.pickupNotes!,
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: AppColors.textMuted,
+                                  height: 1.3,
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
-                          InfoRow(label: 'Pickup', value: passenger.pickupAddress),
-                          InfoRow(label: 'Destination', value: passenger.dropoffAddress),
-                          InfoRow(label: 'Fare', value: passenger.fareDisplay ?? '-', showBorder: false),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                      ],
+                      Row(
+                        children: [
+                          Text(
+                            isExpanded ? 'Hide details' : 'View booking details',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                          const SizedBox(width: 2),
+                          Icon(
+                            isExpanded
+                                ? Icons.keyboard_arrow_up
+                                : Icons.keyboard_arrow_down,
+                            size: 14,
+                            color: AppColors.primary,
+                          ),
                         ],
                       ),
-                    ),
-                    crossFadeState: isExpanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
-                    duration: const Duration(milliseconds: 180),
-                    sizeCurve: Curves.easeInOut,
+                    ],
                   ),
-                ],
+                ),
               ),
-            ),
+              const SizedBox(width: 8),
+              TextButton(
+                onPressed: onArrived,
+                style: TextButton.styleFrom(
+                  backgroundColor: isActive ? AppColors.warning : AppColors.warningLight,
+                  foregroundColor: isActive ? Colors.white : const Color(0xFF92400E),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    side: const BorderSide(color: Color(0xFFF3D48C)),
+                  ),
+                ),
+                child: const Text(
+                  'Arrived',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 8),
-          TextButton(
-            onPressed: onArrived,
-            style: TextButton.styleFrom(
-              backgroundColor: isActive ? AppColors.warning : AppColors.warningLight,
-              foregroundColor: isActive ? Colors.white : const Color(0xFF92400E),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-                side: const BorderSide(color: Color(0xFFF3D48C)),
+          // Expandable booking details
+          AnimatedCrossFade(
+            firstChild: const SizedBox.shrink(),
+            secondChild: Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: AppColors.subtleBackground,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                child: Column(
+                  children: [
+                    if (passenger.rideType != null)
+                      InfoRow(
+                        label: 'Type',
+                        value: passenger.rideType == RideType.shared ? 'SHARED' : 'SPECIAL',
+                      ),
+                    InfoRow(label: 'Pickup', value: passenger.pickupAddress),
+                    InfoRow(label: 'Dest', value: passenger.dropoffAddress),
+                    InfoRow(
+                      label: 'Fare',
+                      value: passenger.fareDisplay ?? '—',
+                      valueColor: AppColors.primary,
+                      showBorder: false,
+                    ),
+                  ],
+                ),
               ),
             ),
-            child: const Text('Arrived', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+            crossFadeState:
+                isExpanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+            duration: const Duration(milliseconds: 200),
+            sizeCurve: Curves.easeInOut,
           ),
         ],
       ),
@@ -631,9 +674,15 @@ class _OnboardRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final String initials = passenger.initials ?? 'P';
+    final String initials = passenger.initials ??
+        passenger.name
+            .split(' ')
+            .map((w) => w.isNotEmpty ? w[0] : '')
+            .take(2)
+            .join()
+            .toUpperCase();
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       decoration: BoxDecoration(
         color: AppColors.cardBackground,
         borderRadius: BorderRadius.circular(12),
@@ -649,37 +698,59 @@ class _OnboardRow extends StatelessWidget {
         ],
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Container(
-            width: 36,
-            height: 36,
+            width: 34,
+            height: 34,
             decoration: BoxDecoration(
               color: AppColors.successLight,
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(9),
             ),
             alignment: Alignment.center,
             child: Text(
               initials,
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.success),
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                color: AppColors.success,
+              ),
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(passenger.name, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+                Text(
+                  passenger.name,
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
                 const SizedBox(height: 2),
                 Text(
-                  passenger.routeSubtitle ?? '${passenger.pickupAddress} → ${passenger.dropoffAddress}',
-                  style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
+                  passenger.routeSubtitle ??
+                      '${passenger.pickupAddress} → ${passenger.dropoffAddress}',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: AppColors.textMuted,
+                    height: 1.3,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
           ),
+          const SizedBox(width: 8),
           Text(
             passenger.fareDisplay ?? '',
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.primary),
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: AppColors.primary,
+            ),
           ),
         ],
       ),
@@ -718,47 +789,7 @@ class _TripStackLabel extends StatelessWidget {
   }
 }
 
-class _MapMarker extends StatelessWidget {
-  const _MapMarker({
-    required this.icon,
-    required this.label,
-    required this.color,
-  });
 
-  final IconData icon;
-  final String label;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Container(
-          width: 32,
-          height: 32,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-          child: Icon(icon, size: 16, color: Colors.white),
-        ),
-        const SizedBox(height: 2),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.9),
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: Text(
-            label,
-            style: const TextStyle(
-              fontSize: 9,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textSecondary,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
 
 class _CancelReasonDialog extends StatefulWidget {
   @override

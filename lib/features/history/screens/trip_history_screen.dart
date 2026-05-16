@@ -35,19 +35,19 @@ extension on _HistoryFilter {
 }
 
 class _TripHistoryScreenState extends State<TripHistoryScreen> {
-  late Future<List<DriverHistoryBooking>> _future;
   _HistoryFilter _filter = _HistoryFilter.all;
+  bool _loadedOnce = false;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _future = DriverFlowScope.of(context).repository.myBookings();
+    if (_loadedOnce) return;
+    _loadedOnce = true;
+    DriverFlowScope.of(context).loadBookings(forceNetwork: false);
   }
 
   Future<void> _refresh() async {
-    setState(() {
-      _future = DriverFlowScope.of(context).repository.myBookings();
-    });
+    await DriverFlowScope.of(context).loadBookings(forceNetwork: true);
   }
 
   List<DriverHistoryBooking> _apply(List<DriverHistoryBooking> raw) {
@@ -67,21 +67,22 @@ class _TripHistoryScreenState extends State<TripHistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final flow = DriverFlowScope.of(context);
     return Scaffold(
       backgroundColor: AppColors.background,
       body: Column(
         children: [
           AppHeader(
             showBackButton: true,
-            onBack: () => Navigator.of(context).pushReplacementNamed(AppRouter.home),
+            onBack: () => AppRouter.navigateTab(context, fromIndex: 1, toIndex: 0, routeName: AppRouter.home),
           ),
           Container(
             width: double.infinity,
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-            child: const Column(
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
+                const Text(
                   'Trip History',
                   style: TextStyle(
                     fontSize: 20,
@@ -89,10 +90,12 @@ class _TripHistoryScreenState extends State<TripHistoryScreen> {
                     color: AppColors.textPrimary,
                   ),
                 ),
-                SizedBox(height: 2),
+                const SizedBox(height: 2),
                 Text(
-                  'Live from /drivers/me/bookings',
-                  style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                  flow.bookingsFetchedAt != null
+                      ? 'Pull down to refresh'
+                      : 'Loading your trips…',
+                  style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
                 ),
               ],
             ),
@@ -117,83 +120,87 @@ class _TripHistoryScreenState extends State<TripHistoryScreen> {
           ),
           const SizedBox(height: 8),
           Expanded(
-            child: RefreshIndicator(
-              onRefresh: _refresh,
-              child: FutureBuilder<List<DriverHistoryBooking>>(
-                future: _future,
-                builder: (context, snap) {
-                  if (snap.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  if (snap.hasError) {
-                    return ListView(children: const [
-                      SizedBox(height: 80),
-                      Center(child: Text('Failed to load trip history.')),
-                    ]);
-                  }
-                  final all = snap.data ?? <DriverHistoryBooking>[];
-                  final rows = _apply(all);
-                  if (rows.isEmpty) {
-                    return ListView(
+            child: ListenableBuilder(
+              listenable: flow,
+              builder: (context, _) {
+                final bookings = flow.bookings;
+                if (bookings == null && flow.bookingsLoadError == null) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (flow.bookingsLoadError != null && bookings == null) {
+                  return RefreshIndicator(
+                    onRefresh: _refresh,
+                    child: ListView(
                       children: [
                         const SizedBox(height: 80),
-                        if (_filter == _HistoryFilter.scheduled)
-                          const _DeferredCard(
-                            title: 'Scheduled bookings',
-                            body: 'Coming after pilot. PRD audit deferral.',
-                          )
-                        else
-                          const Center(
-                            child: Padding(
-                              padding: EdgeInsets.all(24.0),
-                              child: Text(
-                                'No bookings match this filter yet.',
-                                style: TextStyle(color: AppColors.textMuted),
+                        Center(child: Text('Failed to load trip history.\n${flow.bookingsLoadError}')),
+                      ],
+                    ),
+                  );
+                }
+                final rows = _apply(bookings ?? const <DriverHistoryBooking>[]);
+                return RefreshIndicator(
+                  onRefresh: _refresh,
+                  child: rows.isEmpty
+                      ? ListView(
+                          children: [
+                            const SizedBox(height: 80),
+                            if (_filter == _HistoryFilter.scheduled)
+                              const _DeferredCard(
+                                title: 'Scheduled bookings',
+                                body: 'Coming after pilot. PRD audit deferral.',
+                              )
+                            else
+                              const Center(
+                                child: Padding(
+                                  padding: EdgeInsets.all(24.0),
+                                  child: Text(
+                                    'No bookings match this filter yet.',
+                                    style: TextStyle(color: AppColors.textMuted),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        )
+                      : Container(
+                          margin: const EdgeInsets.symmetric(horizontal: 16),
+                          decoration: BoxDecoration(
+                            color: AppColors.cardBackground,
+                            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.04),
+                                blurRadius: 12,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: ClipRRect(
+                            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                            child: ListView.builder(
+                              padding: EdgeInsets.zero,
+                              itemCount: rows.length,
+                              itemBuilder: (context, i) => _TripItem(
+                                booking: rows[i],
+                                onTap: () => Navigator.of(context).pushNamed(
+                                  AppRouter.bookingDetail,
+                                  arguments: rows[i].id,
+                                ),
                               ),
                             ),
                           ),
-                      ],
-                    );
-                  }
-                  return Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 16),
-                    decoration: BoxDecoration(
-                      color: AppColors.cardBackground,
-                      borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.04),
-                          blurRadius: 12,
-                          offset: const Offset(0, 4),
                         ),
-                      ],
-                    ),
-                    child: ClipRRect(
-                      borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-                      child: ListView.builder(
-                        padding: EdgeInsets.zero,
-                        itemCount: rows.length,
-                        itemBuilder: (context, i) => _TripItem(
-                          booking: rows[i],
-                          onTap: () => Navigator.of(context).pushNamed(
-                            AppRouter.bookingDetail,
-                            arguments: rows[i].id,
-                          ),
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
+                );
+              },
             ),
           ),
           BottomNav(
             currentIndex: 1,
             onTap: (index) {
               if (index == 0) {
-                Navigator.of(context).pushReplacementNamed(AppRouter.home);
+                AppRouter.navigateTab(context, fromIndex: 1, toIndex: 0, routeName: AppRouter.home);
               } else if (index == 2) {
-                Navigator.of(context).pushReplacementNamed(AppRouter.profile);
+                AppRouter.navigateTab(context, fromIndex: 1, toIndex: 2, routeName: AppRouter.profile);
               }
             },
           ),

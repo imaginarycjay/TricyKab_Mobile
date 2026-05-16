@@ -8,7 +8,8 @@ Mapping reference from `TricyKab/mockups/driver` to `Applications/driver_app/lib
   - Step 1 matches mockup (logo, Driver Portal, registered number card, TODA President footer).
   - Step 2 retains OTP send/verify for PRD-aligned auth (`Verify & Sign In`).
 - `02-home.html` → `features/home/screens/home_screen.dart`
-  - Profile, stats grid, weekly bars, quick links, bottom nav.
+  - Profile, stats grid, weekly bars, bottom nav.
+  - Incoming offers are now state-driven: the offer screen auto-opens when offers are present; if minimized, a high-contrast “Active Offer” hot zone + availability pulse cues action.
 - `03-incoming-offer.html` → `features/offer/screens/incoming_offer_screen.dart`
   - Three-offer mock batch, offer badge with icon, per-card countdown (safe/warning/danger), trip distance + pickup rows, Accepted/Remaining summary, deferred navigation, special/shared validation dialogs, `arguments: true` return-to-pickup batch.
 - `04-assigned-pickup.html` → `features/pickup/screens/assigned_pickup_screen.dart`

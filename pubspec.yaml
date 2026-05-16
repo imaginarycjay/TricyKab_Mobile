@@ -15,14 +15,36 @@ dependencies:
   shared_preferences: ^2.3.2
   geolocator: ^13.0.1
   url_launcher: ^6.3.1
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+  flutter_native_splash: ^2.4.7
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: assets/branding/app_icon.png
+  adaptive_icon_background: "#6258CA"
+  adaptive_icon_foreground: assets/branding/app_icon.png
+
+flutter_native_splash:
+  color: "#F6F6F8"
+  image: assets/branding/splash_logo.png
+  android: true
+  ios: true
+  web: false
+  android_12:
+    color: "#F6F6F8"
+    image: assets/branding/splash_logo.png
 
 flutter:
   uses-material-design: true
 
   assets:
     - assets/images/
+    - assets/branding/

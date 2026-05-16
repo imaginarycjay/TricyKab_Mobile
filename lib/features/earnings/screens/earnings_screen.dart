@@ -3,12 +3,10 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/app_header.dart';
 import '../../driver_flow/domain/driver_flow_models.dart';
+import '../../driver_flow/domain/driver_performance_stats.dart';
 import '../../driver_flow/driver_flow_scope.dart';
 
 /// PRD §16 Earnings — derives totals client-side from completed bookings.
-///
-/// PRD §13 deferral: a dedicated payouts API ships post-pilot; until then the
-/// driver app reconciles cash settlements locally.
 class EarningsScreen extends StatefulWidget {
   const EarningsScreen({super.key});
 
@@ -17,46 +15,53 @@ class EarningsScreen extends StatefulWidget {
 }
 
 class _EarningsScreenState extends State<EarningsScreen> {
-  late Future<List<DriverHistoryBooking>> _future;
+  bool _loadedOnce = false;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _future = DriverFlowScope.of(context).repository.myBookings();
+    if (_loadedOnce) return;
+    _loadedOnce = true;
+    DriverFlowScope.of(context).loadBookings(forceNetwork: false);
   }
 
   Future<void> _refresh() async {
-    setState(() {
-      _future = DriverFlowScope.of(context).repository.myBookings();
-    });
+    await DriverFlowScope.of(context).loadBookings(forceNetwork: true);
   }
 
   @override
   Widget build(BuildContext context) {
+    final flow = DriverFlowScope.of(context);
     return Scaffold(
       backgroundColor: AppColors.background,
       body: Column(
         children: [
           AppHeader(showBackButton: true, onBack: () => Navigator.of(context).pop()),
           Expanded(
-            child: RefreshIndicator(
-              onRefresh: _refresh,
-              child: FutureBuilder<List<DriverHistoryBooking>>(
-                future: _future,
-                builder: (context, snap) {
-                  if (snap.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  if (snap.hasError) {
-                    return ListView(children: const [
-                      SizedBox(height: 80),
-                      Center(child: Text('Failed to load earnings.')),
-                    ]);
-                  }
-                  final all = (snap.data ?? <DriverHistoryBooking>[])
-                      .where((b) => b.isCompleted)
-                      .toList();
-                  return ListView(
+            child: ListenableBuilder(
+              listenable: flow,
+              builder: (context, _) {
+                final bookings = flow.bookings;
+                if (bookings == null && flow.bookingsLoadError == null) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (flow.bookingsLoadError != null && bookings == null) {
+                  return RefreshIndicator(
+                    onRefresh: _refresh,
+                    child: ListView(
+                      children: const [
+                        SizedBox(height: 80),
+                        Center(child: Text('Failed to load earnings.')),
+                      ],
+                    ),
+                  );
+                }
+                final all = (bookings ?? const <DriverHistoryBooking>[])
+                    .where((b) => b.isCompleted)
+                    .toList();
+                return RefreshIndicator(
+                  onRefresh: _refresh,
+                  child: ListView(
                     padding: const EdgeInsets.all(16),
                     children: [
                       const Text(
@@ -65,7 +70,7 @@ class _EarningsScreenState extends State<EarningsScreen> {
                       ),
                       const SizedBox(height: 4),
                       const Text(
-                        'Calculated from /drivers/me/bookings — completed trips only',
+                        'Pull down to refresh · based on your last 50 trips',
                         style: TextStyle(fontSize: 12, color: AppColors.textMuted),
                       ),
                       const SizedBox(height: 16),
@@ -97,9 +102,9 @@ class _EarningsScreenState extends State<EarningsScreen> {
                         ),
                       ),
                     ],
-                  );
-                },
-              ),
+                  ),
+                );
+              },
             ),
           ),
         ],
@@ -108,39 +113,9 @@ class _EarningsScreenState extends State<EarningsScreen> {
   }
 
   Widget _summaryGrid(List<DriverHistoryBooking> rows) {
-    final now = DateTime.now();
-    final today = rows.where((b) {
-      final iso = b.acceptedAtIso ?? b.createdAtIso;
-      if (iso == null) return false;
-      try {
-        final d = DateTime.parse(iso).toLocal();
-        return d.year == now.year && d.month == now.month && d.day == now.day;
-      } catch (_) {
-        return false;
-      }
-    }).toList();
-    final week = rows.where((b) {
-      final iso = b.acceptedAtIso ?? b.createdAtIso;
-      if (iso == null) return false;
-      try {
-        final d = DateTime.parse(iso).toLocal();
-        final monday = now.subtract(Duration(days: now.weekday - 1));
-        final start = DateTime(monday.year, monday.month, monday.day);
-        return d.isAfter(start);
-      } catch (_) {
-        return false;
-      }
-    }).toList();
-    final month = rows.where((b) {
-      final iso = b.acceptedAtIso ?? b.createdAtIso;
-      if (iso == null) return false;
-      try {
-        final d = DateTime.parse(iso).toLocal();
-        return d.year == now.year && d.month == now.month;
-      } catch (_) {
-        return false;
-      }
-    }).toList();
+    final today = DriverPerformanceStats.completedInPeriod(rows, PerformancePeriod.today);
+    final week = DriverPerformanceStats.completedInPeriod(rows, PerformancePeriod.thisWeek);
+    final month = DriverPerformanceStats.completedInPeriod(rows, PerformancePeriod.thisMonth);
 
     return Container(
       padding: const EdgeInsets.all(16),

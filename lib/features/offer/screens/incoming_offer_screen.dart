@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/countdown_timer.dart';
-import '../../../core/widgets/map_placeholder.dart';
+import '../../../core/widgets/live_map.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../../../navigation/app_router.dart';
 import '../../driver_flow/domain/driver_flow_models.dart';
@@ -33,6 +33,7 @@ class _IncomingOfferScreenState extends State<IncomingOfferScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       final flow = DriverFlowScope.of(context);
+      flow.clearOfferSurfaceSuppression();
       if (widget.returnToAssignedPickup) {
         flow.setReturnToAssignedPickup(true);
       }
@@ -60,9 +61,12 @@ class _IncomingOfferScreenState extends State<IncomingOfferScreen> {
     }
 
     if (flow.acceptedOffers.isNotEmpty) {
-      Navigator.of(context).pushReplacementNamed(AppRouter.assignedPickup);
+      AppRouter.navigateForward(context, AppRouter.assignedPickup, replace: true);
+    } else if (flow.phase != DriverPhase.waitingOffers) {
+      // Active trip exists — resume the correct screen instead of going home.
+      AppRouter.resumeActiveTrip(context, flow.phase);
     } else {
-      Navigator.of(context).pushReplacementNamed(AppRouter.home);
+      AppRouter.navigateHome(context);
     }
   }
 
@@ -82,6 +86,15 @@ class _IncomingOfferScreenState extends State<IncomingOfferScreen> {
       return;
     }
     await flow.acceptOffer(offer);
+    if (!mounted) return;
+    // If accept failed, show error and stay on this screen.
+    if (flow.lastError != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(flow.lastError ?? 'Accept failed')),
+      );
+      setState(() {});
+      return;
+    }
     if (_pageController.hasClients && flow.offers.isNotEmpty) {
       await _pageController.animateToPage(
         0,
@@ -113,6 +126,19 @@ class _IncomingOfferScreenState extends State<IncomingOfferScreen> {
     final flow = DriverFlowScope.of(context);
     final offers = flow.offers;
 
+    return PopScope(
+      canPop: true,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) return;
+        if (flow.offers.isNotEmpty) {
+          flow.suppressAutoOfferSurface();
+        }
+      },
+      child: _buildBody(context, flow, offers),
+    );
+  }
+
+  Widget _buildBody(BuildContext context, DriverFlowController flow, List<DriverOffer> offers) {
     if (offers.isEmpty && flow.isLoading) {
       return const Scaffold(
         backgroundColor: AppColors.background,
@@ -125,7 +151,7 @@ class _IncomingOfferScreenState extends State<IncomingOfferScreen> {
         backgroundColor: AppColors.background,
         body: Center(
           child: ElevatedButton(
-            onPressed: () => Navigator.of(context).pushReplacementNamed(AppRouter.home),
+            onPressed: () => AppRouter.navigateHome(context),
             child: const Text('Back to Home'),
           ),
         ),
@@ -448,7 +474,14 @@ class _OfferCard extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 10),
-              const MapPlaceholder(height: 110, label: 'Route preview', icon: Icons.map_outlined),
+              LiveMap(
+                height: 110,
+                pickupLat: offer.pickupLatitude,
+                pickupLng: offer.pickupLongitude,
+                destinationLat: offer.destinationLatitude,
+                destinationLng: offer.destinationLongitude,
+                showRoute: true,
+              ),
               const SizedBox(height: 14),
               Row(
                 children: [

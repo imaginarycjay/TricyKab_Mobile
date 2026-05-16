@@ -6,7 +6,14 @@ import '../../../core/widgets/info_row.dart';
 import '../../driver_flow/driver_flow_scope.dart';
 import '../../../navigation/app_router.dart';
 
-/// End trip — parity with `mockups/driver/07-end-trip.html`.
+/// End trip / per-passenger receipt — parity with `mockups/driver/07-end-trip.html`.
+///
+/// Supports two modes:
+///  1. **Per-passenger receipt** — shown after completing a single passenger mid-trip.
+///     A "Continue Trip" button returns the driver to trip-in-progress if more
+///     passengers remain.
+///  2. **Final trip receipt** — shown after the last passenger is completed
+///     and the backend trip has been ended.  "Done — Back to Home" resets flow.
 class EndTripScreen extends StatefulWidget {
   const EndTripScreen({super.key});
 
@@ -15,19 +22,20 @@ class EndTripScreen extends StatefulWidget {
 }
 
 class _EndTripScreenState extends State<EndTripScreen> {
-  int _rating = 0;
-  bool _ratingSubmitted = false;
-
   @override
   Widget build(BuildContext context) {
     final flow = DriverFlowScope.of(context);
-    final summary = flow.tripSummary;
+
+    // Prefer per-passenger receipt over the global tripSummary
+    final summary = flow.passengerTripSummary ?? flow.tripSummary;
+    final bool hasMore = flow.hasRemainingPassengers;
+
     if (summary == null) {
       return Scaffold(
         backgroundColor: AppColors.background,
         body: Center(
           child: ElevatedButton(
-            onPressed: () => Navigator.of(context).pushReplacementNamed(AppRouter.home),
+            onPressed: () => AppRouter.navigateHome(context),
             child: const Text('Back to Home'),
           ),
         ),
@@ -51,13 +59,15 @@ class _EndTripScreenState extends State<EndTripScreen> {
                 child: const Icon(Icons.paid_rounded, color: AppColors.success, size: 40),
               ),
               const SizedBox(height: 12),
-              const Text(
-                'Trip Completed!',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+              Text(
+                hasMore ? "${summary.passengerName}'s Trip Completed!" : 'Trip Completed!',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
               ),
               const SizedBox(height: 4),
               Text(
                 summary.collectSubtitle,
+                textAlign: TextAlign.center,
                 style: const TextStyle(fontSize: 13, color: AppColors.textMuted),
               ),
               const SizedBox(height: 24),
@@ -123,10 +133,12 @@ class _EndTripScreenState extends State<EndTripScreen> {
                     ),
                     const SizedBox(height: 12),
                     InfoRow(label: 'Reference', value: summary.bookingReference),
+                    InfoRow(label: 'Passenger', value: summary.passengerName),
                     InfoRow(label: 'Route', value: summary.routeLabel),
                     InfoRow(label: 'Duration', value: summary.duration),
                     InfoRow(label: 'Distance', value: summary.distance),
-                    InfoRow(label: 'Passengers', value: '${summary.passengerCount}'),
+                    if (!hasMore)
+                      InfoRow(label: 'Passengers', value: '${summary.passengerCount}'),
                     InfoRow(
                       label: 'Receipt',
                       value: summary.receiptNumber,
@@ -143,95 +155,109 @@ class _EndTripScreenState extends State<EndTripScreen> {
                   color: AppColors.subtleBackground,
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Row(
+                child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.receipt_long_outlined, color: AppColors.success, size: 20),
-                    SizedBox(width: 8),
+                    Icon(
+                      hasMore ? Icons.info_outline : Icons.receipt_long_outlined,
+                      color: hasMore ? AppColors.primary : AppColors.success,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Digital receipt sent to passenger\'s phone',
+                        hasMore
+                            ? 'You have ${flow.onboardPassengers.where((p) => !p.completed).length} more passenger(s) to complete'
+                            : 'Digital receipt sent to passenger\'s phone',
                         textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: hasMore ? AppColors.primary : AppColors.textSecondary,
+                          fontWeight: hasMore ? FontWeight.w600 : FontWeight.normal,
+                        ),
                       ),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppColors.cardBackground,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.04),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  children: [
-                    const Text(
-                      'Rate this passenger',
-                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: List.generate(5, (i) {
-                        final filled = _rating > i;
-                        return IconButton(
-                          icon: Icon(
-                            filled ? Icons.star_rounded : Icons.star_border_rounded,
-                            color: filled ? AppColors.warning : AppColors.textMuted,
-                            size: 32,
-                          ),
-                          onPressed: _ratingSubmitted ? null : () => setState(() => _rating = i + 1),
-                        );
-                      }),
-                    ),
-                    const SizedBox(height: 4),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: (_rating == 0 || _ratingSubmitted)
-                            ? null
-                            : () {
-                                setState(() => _ratingSubmitted = true);
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text(
-                                      'Rating endpoint deferred per PRD §15 — submitted locally only.',
-                                    ),
-                                  ),
-                                );
-                              },
-                        icon: const Icon(Icons.send_outlined, size: 16),
-                        label: Text(_ratingSubmitted ? 'Rating recorded locally' : 'Submit rating'),
+              if (!hasMore) ...[
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppColors.subtleBackground,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.border.withValues(alpha: 0.6)),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.star_outline_rounded, color: AppColors.warning, size: 22),
+                      SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Passengers rate you from their trip receipt after payment. '
+                          'Driver-to-passenger ratings are not part of the MVP.',
+                          style: TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.35),
+                        ),
                       ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+              ],
+
+              // ---- Action Buttons ----
+              if (hasMore) ...[
+                // Continue trip — go back to trip in progress screen
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      flow.clearPassengerReceipt();
+                      Navigator.of(context).pushReplacement(
+                        PageRouteBuilder(
+                          settings: const RouteSettings(name: AppRouter.tripInProgress),
+                          pageBuilder: (c, _, __) => AppRouter.routes[AppRouter.tripInProgress]!(c),
+                          transitionsBuilder: (_, animation, __, child) {
+                            return SlideTransition(
+                              position: Tween<Offset>(
+                                begin: const Offset(1.0, 0.0),
+                                end: Offset.zero,
+                              ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
+                              child: FadeTransition(
+                                opacity: CurvedAnimation(parent: animation, curve: const Interval(0.0, 0.6)),
+                                child: child,
+                              ),
+                            );
+                          },
+                          transitionDuration: const Duration(milliseconds: 350),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.arrow_forward_rounded, size: 18),
+                    label: const Text('Continue Trip — Next Passenger'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
                     ),
-                  ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                height: 52,
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    flow.resetTripFlow();
-                    Navigator.of(context).pushNamedAndRemoveUntil(
-                      AppRouter.home,
-                      (Route<dynamic> route) => false,
-                    );
-                  },
-                  icon: const Icon(Icons.home_outlined, size: 18),
-                  label: const Text('Done — Back to Home'),
+              ] else ...[
+                // Final — done, back to home
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      flow.clearPassengerReceipt();
+                      flow.resetTripFlow();
+                      AppRouter.navigateHome(context);
+                    },
+                    icon: const Icon(Icons.home_outlined, size: 18),
+                    label: const Text('Done — Back to Home'),
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
         ),

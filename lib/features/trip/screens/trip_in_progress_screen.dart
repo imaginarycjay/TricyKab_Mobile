@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/live_map.dart';
 import '../../../data/mock_data.dart';
 import '../../../navigation/app_router.dart';
 import '../../driver_flow/domain/driver_flow_models.dart';
@@ -56,17 +57,49 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
   Future<void> _onPrimary(DriverFlowController flow) async {
     final next = flow.nextIncompletePassenger;
     if (next != null) {
-      flow.markPassengerCompleted(next.id);
-      setState(() {});
+      await _completePassenger(flow, next.id);
       return;
     }
+    // All passengers already done — end the trip fully
     await flow.endTrip();
     if (!mounted) return;
     if (flow.lastError != null) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(flow.lastError!)));
       return;
     }
-    Navigator.of(context).pushReplacementNamed(AppRouter.endTrip);
+    _navigateToEndTrip();
+  }
+
+  Future<void> _completePassenger(DriverFlowController flow, String passengerId) async {
+    final success = await flow.completePassengerTrip(passengerId);
+    if (!mounted) return;
+    if (!success) {
+      if (flow.lastError != null) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(flow.lastError!)));
+      }
+      return;
+    }
+    _navigateToEndTrip();
+  }
+
+  void _navigateToEndTrip() {
+    Navigator.of(context).pushReplacement(
+      PageRouteBuilder(
+        settings: const RouteSettings(name: AppRouter.endTrip),
+        pageBuilder: (c, _, __) => AppRouter.routes[AppRouter.endTrip]!(c),
+        transitionsBuilder: (_, animation, __, child) {
+          return SlideTransition(
+            position: Tween<Offset>(begin: const Offset(1.0, 0.0), end: Offset.zero)
+                .animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
+            child: FadeTransition(
+              opacity: CurvedAnimation(parent: animation, curve: const Interval(0.0, 0.6)),
+              child: child,
+            ),
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 350),
+      ),
+    );
   }
 
   Future<void> _showSosDialog(BuildContext context) async {
@@ -133,14 +166,41 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
         backgroundColor: AppColors.background,
         body: Center(
           child: ElevatedButton(
-            onPressed: () => Navigator.of(context).pushReplacementNamed(AppRouter.home),
+            onPressed: () => AppRouter.navigateHome(context),
             child: const Text('Return Home'),
           ),
         ),
       );
     }
 
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        final shouldLeave = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Leave active trip?'),
+            content: const Text(
+              'You have a trip in progress. Going back to home will not end it \u2014 you can resume from the home screen.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Stay'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Go to Home'),
+              ),
+            ],
+          ),
+        );
+        if (shouldLeave == true && context.mounted) {
+          AppRouter.navigateHome(context);
+        }
+      },
+      child: Scaffold(
       backgroundColor: AppColors.background,
       floatingActionButton: FloatingActionButton.extended(
         backgroundColor: AppColors.danger,
@@ -220,7 +280,7 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
                 child: Column(
                   children: [
-                    _buildTripMap(),
+                    _buildTripMap(flow),
                     const SizedBox(height: 12),
                     _buildOnboardSection(flow),
                     const SizedBox(height: 12),
@@ -332,83 +392,25 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
           ],
         ),
       ),
+      ),
     );
   }
 
-  Widget _buildTripMap() {
-    return Container(
-      height: 200,
-      width: double.infinity,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        gradient: const LinearGradient(
-          colors: [Color(0xFFE8E6F0), Color(0xFFD4D0E8)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-      ),
-      child: Stack(
-        children: [
-          const Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.navigation_rounded, color: AppColors.textMuted, size: 28),
-                SizedBox(height: 4),
-                Text(
-                  'Optimized route to drop-offs',
-                  style: TextStyle(fontSize: 12, color: AppColors.textMuted),
-                ),
-              ],
-            ),
-          ),
-          Positioned(
-            top: 72,
-            left: 88,
-            child: _MapDot(color: AppColors.primary, icon: Icons.electric_rickshaw_outlined),
-          ),
-          Positioned(
-            bottom: 38,
-            right: 46,
-            child: _MapDot(label: 'Maria — USM', color: AppColors.danger, icon: Icons.flag_outlined),
-          ),
-          Positioned(
-            bottom: 28,
-            left: 52,
-            child: _MapDot(label: 'Jose — Nongnongan', color: AppColors.danger, icon: Icons.flag_outlined),
-          ),
-          Positioned(
-            top: 100,
-            left: 100,
-            child: Transform.rotate(
-              angle: 0.26,
-              child: Container(
-                width: 90,
-                height: 3,
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.3),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            top: 118,
-            left: 72,
-            child: Transform.rotate(
-              angle: -0.17,
-              child: Container(
-                width: 70,
-                height: 3,
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.25),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
+  Widget _buildTripMap(DriverFlowController flow) {
+    final offer = flow.tripAnchorOffer;
+    return LiveMap(
+      height: 210,
+      pickupLat: offer?.pickupLatitude ?? 7.1083,
+      pickupLng: offer?.pickupLongitude ?? 124.8295,
+      destinationLat: offer?.destinationLatitude ?? 7.1117,
+      destinationLng: offer?.destinationLongitude ?? 124.8419,
+      showRoute: true,
+      showFullscreenButton: true,   // PRD §5A — fullscreen map toggle
+      driverHasArrived: true,       // PRD §5B — route driver → destination in-trip
+      // Use real GPS from controller — updated every 10 s via startLocationPing.
+      // Falls back to a position between pickup and destination when unavailable.
+      driverLat: flow.lastLatitude ?? ((offer?.pickupLatitude ?? 7.1083) + (offer?.destinationLatitude ?? 7.1117)) / 2,
+      driverLng: flow.lastLongitude ?? ((offer?.pickupLongitude ?? 124.8295) + (offer?.destinationLongitude ?? 124.8419)) / 2,
     );
   }
 
@@ -445,7 +447,7 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
           ...flow.onboardPassengers.map(
             (TripPassenger passenger) => Container(
               margin: const EdgeInsets.only(bottom: 10),
-              padding: const EdgeInsets.all(14),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
               decoration: BoxDecoration(
                 color: AppColors.cardBackground,
                 borderRadius: BorderRadius.circular(12),
@@ -464,13 +466,14 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
                 ],
               ),
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Container(
-                    width: 36,
-                    height: 36,
+                    width: 34,
+                    height: 34,
                     decoration: BoxDecoration(
                       color: passenger.completed ? AppColors.subtleBackground : AppColors.successLight,
-                      borderRadius: BorderRadius.circular(10),
+                      borderRadius: BorderRadius.circular(9),
                     ),
                     alignment: Alignment.center,
                     child: Text(
@@ -483,35 +486,50 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 10),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(passenger.name, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+                        Text(
+                          passenger.name,
+                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                         const SizedBox(height: 2),
                         Text(
                           passenger.routeSubtitle ??
-                              '${passenger.pickupAddress} → ${passenger.dropoffAddress}',
-                          style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
+                              '${passenger.pickupAddress} \u2192 ${passenger.dropoffAddress}',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: AppColors.textMuted,
+                            height: 1.3,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ],
                     ),
                   ),
+                  const SizedBox(width: 8),
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
                         passenger.fareDisplay ?? '',
-                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.primary),
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.primary,
+                        ),
                       ),
+                      const SizedBox(height: 4),
                       TextButton.icon(
                         onPressed: passenger.completed
                             ? null
-                            : () {
-                                flow.markPassengerCompleted(passenger.id);
-                                setState(() {});
-                              },
+                            : () => _completePassenger(flow, passenger.id),
                         icon: Icon(
                           passenger.completed ? Icons.done_all_outlined : Icons.check_outlined,
                           size: 12,
@@ -521,6 +539,9 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
                           backgroundColor: passenger.completed ? AppColors.subtleBackground : AppColors.successLight,
                           foregroundColor: passenger.completed ? AppColors.textMuted : AppColors.success,
                           textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         ),
                       ),
                     ],
@@ -535,38 +556,4 @@ class _TripInProgressScreenState extends State<TripInProgressScreen> {
   }
 }
 
-class _MapDot extends StatelessWidget {
-  const _MapDot({this.label, required this.color, required this.icon});
 
-  final String? label;
-  final Color color;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Container(
-          width: 32,
-          height: 32,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-          child: Icon(icon, size: 16, color: Colors.white),
-        ),
-        if (label != null) ...[
-          const SizedBox(height: 2),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.92),
-              borderRadius: BorderRadius.circular(4),
-            ),
-            child: Text(
-              label!,
-              style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: AppColors.textSecondary),
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-}
